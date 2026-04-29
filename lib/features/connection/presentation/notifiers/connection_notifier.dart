@@ -59,7 +59,7 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
     } catch (e) {
       state = state.copyWith(
         status: ConnectionStatus.error,
-        errorMessage: e is UnsupportedError ? (e.message ?? e.toString()) : e.toString(),
+        errorMessage: e.toString(),
       );
     }
   }

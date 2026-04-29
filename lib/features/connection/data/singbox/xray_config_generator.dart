@@ -38,13 +38,51 @@ class XrayConfigGenerator {
     return jsonEncode(config);
   }
 
+  /// Config for chain proxy mode: xray routes everything through a local SOCKS port
+  /// (where sing-box is listening and handles the actual protocol).
+  String generateSocksPassthrough(int socksPort) {
+    final config = {
+      'log': {'loglevel': 'error', 'access': '', 'error': ''},
+      'dns': {'servers': ['8.8.8.8', '8.8.4.4', '1.1.1.1']},
+      'inbounds': [
+        {
+          'tag': 'in_proxy',
+          'protocol': 'socks',
+          'port': 1080,
+          'listen': '127.0.0.1',
+          'settings': {'auth': 'noauth', 'udp': true},
+          'sniffing': {'enabled': true, 'destOverride': ['http', 'tls']},
+        }
+      ],
+      'outbounds': [
+        {
+          'tag': 'proxy',
+          'protocol': 'socks',
+          'settings': {
+            'servers': [
+              {'address': '127.0.0.1', 'port': socksPort, 'users': []}
+            ]
+          },
+        },
+        _direct(),
+        _block(),
+      ],
+      'routing': {
+        'domainStrategy': 'IPIfNonMatch',
+        'rules': [
+          {'type': 'field', 'outboundTag': 'direct', 'ip': ['geoip:private']},
+        ],
+      },
+    };
+    return jsonEncode(config);
+  }
+
   Map<String, dynamic> _outbound(ParsedProxy proxy) => switch (proxy) {
         VmessConfig c => _vmess(c),
         VlessConfig c => _vless(c),
         TrojanConfig c => _trojan(c),
         ShadowsocksConfig c => _shadowsocks(c),
-        _ => throw UnsupportedError(
-            '${proxy.protocolLabel} не поддерживается на Android. Используйте серверы VLESS Reality, xHTTP, VMess, Trojan или Shadowsocks.'),
+        _ => throw UnsupportedError('unsupported_use_chain'),
       };
 
   Map<String, dynamic> _vmess(VmessConfig c) => {

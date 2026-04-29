@@ -15,7 +15,7 @@ void main() async {
       options.tracesSampleRate = 0.2;
     },
     appRunner: () => runApp(
-      const ProviderScope(child: NexProxyApp()),
+      const ProviderScope(child: HoneyProxyApp()),
     ),
   );
 }

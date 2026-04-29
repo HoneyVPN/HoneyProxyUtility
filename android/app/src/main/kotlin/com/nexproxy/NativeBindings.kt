@@ -7,21 +7,15 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.BinaryMessenger
 
-/**
- * Bridges Flutter MethodChannel ↔ Android VPN service.
- *
- * Channels:
- *   com.nexproxy/vpn        - MethodChannel: start | stop | requestPermission | getStats
- *   com.nexproxy/vpn_stats  - EventChannel: stream of {uplink, downlink, uplinkTotal, downlinkTotal, duration}
- */
 class NativeBindings(
     private val context: Context,
     messenger: BinaryMessenger,
     private val requestVpnPermission: (callback: (Boolean) -> Unit) -> Unit,
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
-    private val methodChannel = MethodChannel(messenger, "com.nexproxy/vpn")
-    private val eventChannel  = EventChannel(messenger, "com.nexproxy/vpn_stats")
+    private val methodChannel = MethodChannel(messenger, "ru.honeyvpn.proxy/vpn")
+    private val eventChannel  = EventChannel(messenger, "ru.honeyvpn.proxy/vpn_stats")
+    private val nativeChannel = MethodChannel(messenger, "ru.honeyvpn.proxy/native")
     private var eventSink: EventChannel.EventSink? = null
 
     companion object {
@@ -53,6 +47,12 @@ class NativeBindings(
         instance = this
         methodChannel.setMethodCallHandler(this)
         eventChannel.setStreamHandler(this)
+        nativeChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getNativeLibDir" -> result.success(context.applicationInfo.nativeLibraryDir)
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -98,7 +98,6 @@ class NativeBindings(
         context.startService(intent)
     }
 
-    // EventChannel.StreamHandler
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         eventSink = events
     }
@@ -111,5 +110,6 @@ class NativeBindings(
         instance = null
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        nativeChannel.setMethodCallHandler(null)
     }
 }

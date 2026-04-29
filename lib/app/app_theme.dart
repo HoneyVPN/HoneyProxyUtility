@@ -47,7 +47,7 @@ class NexColors {
 
 // ─── Light theme ────────────────────────────────────────────────────────────
 
-final nexproxyThemeLight = ThemeData(
+final honeyThemeLight = ThemeData(
   useMaterial3: true,
   colorScheme: ColorScheme(
     brightness: Brightness.light,
@@ -167,7 +167,7 @@ final nexproxyThemeLight = ThemeData(
 
 // ─── Dark theme ─────────────────────────────────────────────────────────────
 
-final nexproxyThemeDark = ThemeData(
+final honeyThemeDark = ThemeData(
   useMaterial3: true,
   colorScheme: ColorScheme(
     brightness: Brightness.dark,

@@ -11,21 +11,13 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 
-/**
- * NexProxy VPN Service — wraps sing-box (libbox) via JNI.
- *
- * Communication with Flutter:
- * - Start: ACTION_START intent with "config_json" extra
- * - Stop:  ACTION_STOP  intent
- * - Stats: EventChannel "com.nexproxy/vpn_stats" via NativeBindings
- */
 class NexProxyVpnService : VpnService() {
 
     companion object {
-        const val TAG = "NexProxyVPN"
-        const val ACTION_START = "com.nexproxy.START"
-        const val ACTION_STOP  = "com.nexproxy.STOP"
-        const val CHANNEL_ID   = "nexproxy_vpn"
+        const val TAG = "HoneyVPN"
+        const val ACTION_START = "ru.honeyvpn.proxy.START"
+        const val ACTION_STOP  = "ru.honeyvpn.proxy.STOP"
+        const val CHANNEL_ID   = "honeyvpn_vpn"
         const val NOTIFICATION_ID = 1001
 
         @Volatile
@@ -34,7 +26,6 @@ class NexProxyVpnService : VpnService() {
     }
 
     private var tunFd: ParcelFileDescriptor? = null
-    private var libboxService: Any? = null  // LibboxServiceProtocol once libbox is integrated
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -49,22 +40,19 @@ class NexProxyVpnService : VpnService() {
 
     private fun startTunnel(configJson: String) {
         Log.d(TAG, "Starting VPN tunnel")
+        startForeground(NOTIFICATION_ID, buildNotification("Подключение..."))
 
-        startForeground(NOTIFICATION_ID, buildNotification("Connecting..."))
-
-        // Build TUN interface
         val builder = Builder()
-            .setSession("NexProxy")
+            .setSession("HoneyProxyUtility")
             .addAddress("172.19.0.1", 30)
             .addAddress("fdfe:dcba:9876::1", 126)
-            .addDnsServer("172.19.0.2")      // FakeIP gateway
+            .addDnsServer("172.19.0.2")
             .addDnsServer("fdfe:dcba:9876::2")
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
             .setMtu(9000)
             .setBlocking(false)
 
-        // Exclude self to prevent loops
         try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
 
         tunFd?.close()
@@ -75,16 +63,8 @@ class NexProxyVpnService : VpnService() {
         }
 
         isRunning = true
-
-        // TODO: Pass configJson and tunFd.fd to libbox once JNI is integrated
-        // libboxService = LibboxNewService(configJson, this)
-        // libboxService.setTunFd(tunFd!!.detachFd())
-        // libboxService.start()
-
-        updateNotification("Connected")
+        updateNotification("Подключено")
         Log.d(TAG, "VPN tunnel started, fd=${tunFd!!.fd}")
-
-        // Notify Flutter via EventSink
         NativeBindings.onVpnStarted()
     }
 
@@ -92,7 +72,6 @@ class NexProxyVpnService : VpnService() {
         Log.d(TAG, "Stopping VPN tunnel")
         isRunning = false
         try {
-            // libboxService?.close()
             tunFd?.close()
             tunFd = null
         } catch (e: Exception) {
@@ -103,22 +82,15 @@ class NexProxyVpnService : VpnService() {
         stopSelf()
     }
 
-    override fun onRevoke() {
-        super.onRevoke()
-        stopTunnel()
-    }
-
-    override fun onDestroy() {
-        stopTunnel()
-        super.onDestroy()
-    }
+    override fun onRevoke() { super.onRevoke(); stopTunnel() }
+    override fun onDestroy() { stopTunnel(); super.onDestroy() }
 
     private fun buildNotification(status: String): Notification {
         createNotificationChannel()
         val intent = packageManager.getLaunchIntentForPackage(packageName)
         val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("NexProxy")
+            .setContentTitle("HoneyProxyUtility")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pi)
@@ -128,17 +100,16 @@ class NexProxyVpnService : VpnService() {
     }
 
     private fun updateNotification(status: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm?.notify(NOTIFICATION_ID, buildNotification(status))
+        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification(status))
     }
 
     private fun createNotificationChannel() {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
-            CHANNEL_ID, "VPN Status", NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ID, "HoneyProxyUtility VPN", NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "NexProxy VPN connection status"
+            description = "HoneyProxyUtility VPN connection status"
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)
