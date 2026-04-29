@@ -8,7 +8,7 @@ import '../../../converter/domain/entities/parsed_proxy.dart';
 
 class WindowsVpnDatasource {
   final void Function(V2RayStatus) onStatusChanged;
-  Process? _xrayProcess;
+  Process? _sbProcess;
 
   static const _socksPort = 10808;
   static const _httpPort  = 10809;
@@ -21,26 +21,22 @@ class WindowsVpnDatasource {
   Future<void> start(ParsedProxy proxy) async {
     await stop();
 
-    final config    = _buildXrayConfig(proxy);
-    final tempDir   = await getTemporaryDirectory();
-    final cfgFile   = File('${tempDir.path}/honeyvpn_xray.json');
+    final config  = _buildSingboxConfig(proxy);
+    final tmp     = await getTemporaryDirectory();
+    final cfgFile = File('${tmp.path}/honeyvpn_sb.json');
     await cfgFile.writeAsString(jsonEncode(config));
 
-    final exeDir  = File(Platform.resolvedExecutable).parent;
-    final xrayExe = File('${exeDir.path}/xray.exe');
-    if (!xrayExe.existsSync()) {
-      throw Exception('xray.exe not found at ${xrayExe.path}');
+    final exeDir = File(Platform.resolvedExecutable).parent;
+    final sbExe  = File('${exeDir.path}/sing-box.exe');
+    if (!sbExe.existsSync()) {
+      throw Exception('sing-box.exe not found at ${sbExe.path}');
     }
 
     onStatusChanged(const V2RayStatus(state: 'CONNECTING'));
 
-    _xrayProcess = await Process.start(
-      xrayExe.path,
-      ['run', '-c', cfgFile.path],
-    );
+    _sbProcess = await Process.start(sbExe.path, ['run', '-c', cfgFile.path]);
 
-    // Give xray a moment to start
-    await Future.delayed(const Duration(milliseconds: 1000));
+    await Future.delayed(const Duration(milliseconds: 1200));
 
     await _setSystemProxy('127.0.0.1', _httpPort);
 
@@ -48,21 +44,17 @@ class WindowsVpnDatasource {
   }
 
   Future<void> stop() async {
-    _xrayProcess?.kill();
-    _xrayProcess = null;
-    try {
-      await _clearSystemProxy();
-    } catch (_) {}
+    _sbProcess?.kill();
+    _sbProcess = null;
+    try { await _clearSystemProxy(); } catch (_) {}
     onStatusChanged(const V2RayStatus(state: 'DISCONNECTED'));
   }
 
   Future<int> ping(ParsedProxy proxy) async {
     try {
-      final sw = Stopwatch()..start();
-      final sock = await Socket.connect(
-        proxy.host, proxy.port,
-        timeout: const Duration(seconds: 5),
-      );
+      final sw   = Stopwatch()..start();
+      final sock = await Socket.connect(proxy.host, proxy.port,
+          timeout: const Duration(seconds: 5));
       sw.stop();
       sock.destroy();
       return sw.elapsedMilliseconds;
@@ -76,156 +68,137 @@ class WindowsVpnDatasource {
   // ── System proxy ──────────────────────────────────────────────────────────
 
   Future<void> _setSystemProxy(String host, int port) async {
-    const key =
+    const k =
         r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
-    await Process.run('reg', ['add', key, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '1', '/f']);
-    await Process.run('reg', ['add', key, '/v', 'ProxyServer', '/t', 'REG_SZ',   '/d', '$host:$port', '/f']);
+    await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '1', '/f']);
+    await Process.run('reg', ['add', k, '/v', 'ProxyServer',  '/t', 'REG_SZ',    '/d', '$host:$port', '/f']);
   }
 
   Future<void> _clearSystemProxy() async {
-    const key =
+    const k =
         r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
-    await Process.run('reg', ['add', key, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '0', '/f']);
+    await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '0', '/f']);
   }
 
-  // ── Xray config builder ───────────────────────────────────────────────────
+  // ── sing-box config ───────────────────────────────────────────────────────
 
-  Map<String, dynamic> _buildXrayConfig(ParsedProxy proxy) => {
-    'log': {'loglevel': 'warning'},
+  Map<String, dynamic> _buildSingboxConfig(ParsedProxy proxy) => {
+    'log': {'level': 'warn'},
     'inbounds': [
-      {
-        'tag': 'socks',
-        'port': _socksPort,
-        'listen': '127.0.0.1',
-        'protocol': 'socks',
-        'settings': {'auth': 'noauth', 'udp': true},
-      },
-      {
-        'tag': 'http',
-        'port': _httpPort,
-        'listen': '127.0.0.1',
-        'protocol': 'http',
-        'settings': {},
-      },
+      {'type': 'socks', 'tag': 'socks-in', 'listen': '127.0.0.1', 'listen_port': _socksPort},
+      {'type': 'http',  'tag': 'http-in',  'listen': '127.0.0.1', 'listen_port': _httpPort},
     ],
     'outbounds': [_buildOutbound(proxy)],
   };
 
   Map<String, dynamic> _buildOutbound(ParsedProxy proxy) => switch (proxy) {
     VlessConfig c => {
-      'protocol': 'vless',
-      'settings': {
-        'vnext': [{
-          'address': c.host,
-          'port': c.port,
-          'users': [{'id': c.uuid, 'encryption': 'none', 'flow': c.flow}],
-        }],
-      },
-      'streamSettings': _vlessStream(c),
+      'type': 'vless',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'uuid': c.uuid,
+      if (c.flow.isNotEmpty) 'flow': c.flow,
+      'tls': _vlessTls(c),
+      if (_hasTransport(c.transport)) 'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName),
     },
     VmessConfig c => {
-      'protocol': 'vmess',
-      'settings': {
-        'vnext': [{
-          'address': c.host,
-          'port': c.port,
-          'users': [{'id': c.uuid, 'alterId': c.alterId, 'security': c.security}],
-        }],
-      },
-      'streamSettings': _vmessStream(c),
+      'type': 'vmess',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'uuid': c.uuid,
+      'alter_id': c.alterId,
+      'security': c.security.isEmpty ? 'auto' : c.security,
+      if (c.tls == 'tls') 'tls': {'enabled': true, 'server_name': c.sni},
+      if (_hasTransport(c.network)) 'transport': _transport(c.network, c.path, c.wsHost, ''),
     },
     TrojanConfig c => {
-      'protocol': 'trojan',
-      'settings': {
-        'servers': [{'address': c.host, 'port': c.port, 'password': c.password}],
+      'type': 'trojan',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'password': c.password,
+      'tls': {
+        'enabled': true,
+        'server_name': c.sni,
+        if (c.alpn.isNotEmpty) 'alpn': c.alpn.split(','),
       },
-      'streamSettings': _trojanStream(c),
+      if (_hasTransport(c.transport)) 'transport': _transport(c.transport, c.path, c.transportHost, ''),
     },
     ShadowsocksConfig c => {
-      'protocol': 'shadowsocks',
-      'settings': {
-        'servers': [{'address': c.host, 'port': c.port, 'method': c.method, 'password': c.password}],
+      'type': 'shadowsocks',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'method': c.method,
+      'password': c.password,
+    },
+    Hysteria2Config c => {
+      'type': 'hysteria2',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'password': c.auth,
+      'tls': {
+        'enabled': true,
+        if (c.sni.isNotEmpty) 'server_name': c.sni,
+        if (c.insecure) 'insecure': true,
+        if (c.pinSha256.isNotEmpty) 'certificate_path': '',
       },
+      if (c.obfs.isNotEmpty) 'obfs': {'type': c.obfs, 'password': c.obfsPassword},
     },
     _ => throw UnsupportedError('${proxy.protocolLabel} not yet supported on Windows'),
   };
 
-  Map<String, dynamic> _vlessStream(VlessConfig c) {
-    final net = c.transport.isEmpty ? 'tcp' : c.transport;
-    final m = <String, dynamic>{
-      'network': net,
-      'security': c.security,
-    };
+  Map<String, dynamic> _vlessTls(VlessConfig c) {
+    final tls = <String, dynamic>{'enabled': true};
+    if (c.sni.isNotEmpty) tls['server_name'] = c.sni;
+    if (c.fingerprint.isNotEmpty) {
+      tls['utls'] = {'enabled': true, 'fingerprint': c.fingerprint};
+    }
     if (c.security == 'reality') {
-      m['realitySettings'] = {
-        'serverName': c.sni,
-        'fingerprint': c.fingerprint.isEmpty ? 'chrome' : c.fingerprint,
-        'publicKey': c.publicKey,
-        'shortId': c.shortId,
-        'spiderX': c.spiderX.isEmpty ? '/' : c.spiderX,
-      };
-    } else if (c.security == 'tls') {
-      m['tlsSettings'] = {
-        'serverName': c.sni,
-        if (c.fingerprint.isNotEmpty) 'fingerprint': c.fingerprint,
-
+      tls['reality'] = {
+        'enabled': true,
+        'public_key': c.publicKey,
+        'short_id': c.shortId,
       };
     }
-    _applyTransport(m, net, c.path, c.transportHost, c.grpcServiceName);
-    return m;
+    return tls;
   }
 
-  Map<String, dynamic> _vmessStream(VmessConfig c) {
-    final net = c.network.isEmpty ? 'tcp' : c.network;
-    final m = <String, dynamic>{'network': net, 'security': c.tls};
-    if (c.tls == 'tls') {
-      m['tlsSettings'] = {'serverName': c.sni};
-    }
-    _applyTransport(m, net, c.path, c.wsHost, '');
-    return m;
-  }
+  bool _hasTransport(String t) =>
+      t.isNotEmpty && t != 'tcp';
 
-  Map<String, dynamic> _trojanStream(TrojanConfig c) {
-    final net = c.transport.isEmpty ? 'tcp' : c.transport;
-    final m = <String, dynamic>{
-      'network': net,
-      'security': c.security.isEmpty ? 'tls' : c.security,
-      'tlsSettings': {
-        'serverName': c.sni,
-
-        if (c.fingerprint.isNotEmpty) 'fingerprint': c.fingerprint,
+  Map<String, dynamic> _transport(
+      String type, String path, String host, String grpcService) {
+    final t = type == 'xhttp' ? 'xhttp' : type;
+    return switch (t) {
+      'ws' => {
+        'type': 'ws',
+        'path': path.isEmpty ? '/' : path,
+        if (host.isNotEmpty) 'headers': {'Host': host},
       },
+      'h2' || 'http' => {
+        'type': 'http',
+        'path': path.isEmpty ? '/' : path,
+        if (host.isNotEmpty) 'host': [host],
+      },
+      'grpc' => {
+        'type': 'grpc',
+        'service_name': grpcService,
+      },
+      'xhttp' => {
+        'type': 'xhttp',
+        'path': path.isEmpty ? '/' : path,
+        if (host.isNotEmpty) 'host': host,
+      },
+      'httpupgrade' => {
+        'type': 'httpupgrade',
+        'path': path.isEmpty ? '/' : path,
+        if (host.isNotEmpty) 'host': host,
+      },
+      _ => {'type': t},
     };
-    _applyTransport(m, net, c.path, c.transportHost, '');
-    return m;
-  }
-
-  void _applyTransport(Map<String, dynamic> m, String net,
-      String path, String host, String grpcService) {
-    switch (net) {
-      case 'ws':
-        m['wsSettings'] = {
-          'path': path.isEmpty ? '/' : path,
-          if (host.isNotEmpty) 'headers': {'Host': host},
-        };
-      case 'h2':
-        m['httpSettings'] = {
-          'path': path.isEmpty ? '/' : path,
-          if (host.isNotEmpty) 'host': [host],
-        };
-      case 'grpc':
-        m['grpcSettings'] = {'serviceName': grpcService};
-      case 'xhttp':
-        m['xhttpSettings'] = {
-          'path': path.isEmpty ? '/' : path,
-          if (host.isNotEmpty) 'host': host,
-          'mode': 'stream-one',
-        };
-      case 'httpupgrade':
-        m['httpUpgradeSettings'] = {
-          'path': path.isEmpty ? '/' : path,
-          if (host.isNotEmpty) 'host': host,
-        };
-    }
   }
 }
