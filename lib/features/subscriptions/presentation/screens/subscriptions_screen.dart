@@ -12,7 +12,7 @@ import '../../../converter/data/parsers/subscription_parser.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../../app/app_theme.dart';
 
-const _subsKey = 'nexproxy_subscriptions';
+const _subsKey = 'honeyvpn_subscriptions';
 const _corsBase = '/proxy/?url=';
 const _firstRunKey = 'honey_first_run_done';
 const _defaultSubUrl = 'https://sub.honeyvpn.ru/ext/5BQLnwsNJ5nvF6dH';

@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/app_settings.dart';
 
-const _settingsKey = 'nexproxy_settings';
+const _settingsKey = 'honeyvpn_settings';
 
 final settingsProvider = AsyncNotifierProvider<SettingsNotifier, AppSettings>(
   SettingsNotifier.new,

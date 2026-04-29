@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/server_profile_model.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
 
-const _serversKey = 'nexproxy_servers';
+const _serversKey = 'honeyvpn_servers';
 
 final serversNotifierProvider =
     AsyncNotifierProvider<ServersNotifier, List<ServerProfileModel>>(

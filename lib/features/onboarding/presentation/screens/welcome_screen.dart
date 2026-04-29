@@ -16,14 +16,14 @@ class WelcomeScreen extends StatelessWidget {
             children: [
               Icon(Icons.public, size: 72, color: Color(0xFF3B82F6)),
               SizedBox(height: 16),
-              Text('NexProxy', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
+              Text('HoneyProxyUtility', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
       );
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('NexProxy')),
+      appBar: AppBar(title: const Text('HoneyProxyUtility')),
       body: Center(
         child: FilledButton(
           onPressed: () => context.go('/'),

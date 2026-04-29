@@ -6,8 +6,8 @@ import 'app_router.dart';
 import 'app_theme.dart';
 import '../features/settings/presentation/notifiers/settings_notifier.dart';
 
-class NexProxyApp extends ConsumerWidget {
-  const NexProxyApp({super.key});
+class HoneyProxyApp extends ConsumerWidget {
+  const HoneyProxyApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -20,8 +20,8 @@ class NexProxyApp extends ConsumerWidget {
 
     return MaterialApp.router(
       title: 'Honey',
-      theme: nexproxyThemeLight,
-      darkTheme: nexproxyThemeDark,
+      theme: honeyThemeLight,
+      darkTheme: honeyThemeDark,
       themeMode: themeMode,
       routerConfig: appRouter,
       locale: Locale(locale),
