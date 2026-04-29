@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,9 +10,14 @@ import '../../../converter/domain/entities/parsed_proxy.dart';
 class WindowsVpnDatasource {
   final void Function(V2RayStatus) onStatusChanged;
   Process? _sbProcess;
+  StreamSubscription<String>? _statsSub;
+  DateTime? _connectedAt;
+  int _totalUp   = 0;
+  int _totalDown = 0;
 
-  static const _socksPort = 10808;
-  static const _httpPort  = 10809;
+  static const _socksPort  = 10808;
+  static const _httpPort   = 10809;
+  static const _clashPort  = 9090;
 
   WindowsVpnDatasource({required this.onStatusChanged});
 
@@ -35,15 +41,87 @@ class WindowsVpnDatasource {
     onStatusChanged(const V2RayStatus(state: 'CONNECTING'));
 
     _sbProcess = await Process.start(sbExe.path, ['run', '-c', cfgFile.path]);
+    _connectedAt = DateTime.now();
+    _totalUp     = 0;
+    _totalDown   = 0;
 
+    // Give sing-box time to start and open the API
     await Future.delayed(const Duration(milliseconds: 1200));
 
     await _setSystemProxy('127.0.0.1', _httpPort);
 
     onStatusChanged(const V2RayStatus(state: 'CONNECTED'));
+
+    _startStatsStream();
+  }
+
+  void _startStatsStream() {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 5);
+
+    Future(() async {
+      try {
+        final req  = await client.getUrl(
+            Uri.parse('http://127.0.0.1:$_clashPort/traffic'));
+        final resp = await req.close();
+
+        _statsSub = resp
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) {
+          if (line.trim().isEmpty) return;
+          try {
+            final data = json.decode(line) as Map<String, dynamic>;
+            final up   = (data['up']   as num? ?? 0).toInt();
+            final down = (data['down'] as num? ?? 0).toInt();
+            _totalUp   += up;
+            _totalDown += down;
+
+            final elapsed = DateTime.now().difference(_connectedAt!);
+            final h = elapsed.inHours.toString().padLeft(2, '0');
+            final m = (elapsed.inMinutes  % 60).toString().padLeft(2, '0');
+            final s = (elapsed.inSeconds  % 60).toString().padLeft(2, '0');
+
+            onStatusChanged(V2RayStatus(
+              state:         'CONNECTED',
+              uploadSpeed:   up.toDouble(),
+              downloadSpeed: down.toDouble(),
+              upload:        _totalUp,
+              download:      _totalDown,
+              duration:      '$h:$m:$s',
+            ));
+          } catch (_) {}
+        }, onError: (_) {});
+      } catch (_) {
+        // Clash API not available — fall back to a simple timer
+        _startFallbackTimer();
+      } finally {
+        client.close();
+      }
+    });
+  }
+
+  // Fallback: update only the session clock if Clash API is unreachable
+  Timer? _fallbackTimer;
+  void _startFallbackTimer() {
+    _fallbackTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_connectedAt == null) return;
+      final elapsed = DateTime.now().difference(_connectedAt!);
+      final h = elapsed.inHours.toString().padLeft(2, '0');
+      final m = (elapsed.inMinutes  % 60).toString().padLeft(2, '0');
+      final s = (elapsed.inSeconds  % 60).toString().padLeft(2, '0');
+      onStatusChanged(V2RayStatus(
+        state: 'CONNECTED', duration: '$h:$m:$s',
+      ));
+    });
   }
 
   Future<void> stop() async {
+    await _statsSub?.cancel();
+    _statsSub = null;
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
+    _connectedAt   = null;
     _sbProcess?.kill();
     _sbProcess = null;
     try { await _clearSystemProxy(); } catch (_) {}
@@ -84,6 +162,11 @@ class WindowsVpnDatasource {
 
   Map<String, dynamic> _buildSingboxConfig(ParsedProxy proxy) => {
     'log': {'level': 'warn'},
+    'experimental': {
+      'clash_api': {
+        'external_controller': '127.0.0.1:$_clashPort',
+      },
+    },
     'inbounds': [
       {'type': 'socks', 'tag': 'socks-in', 'listen': '127.0.0.1', 'listen_port': _socksPort},
       {'type': 'http',  'tag': 'http-in',  'listen': '127.0.0.1', 'listen_port': _httpPort},
@@ -100,7 +183,8 @@ class WindowsVpnDatasource {
       'uuid': c.uuid,
       if (c.flow.isNotEmpty) 'flow': c.flow,
       'tls': _vlessTls(c),
-      if (_hasTransport(c.transport)) 'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName),
+      if (_hasTransport(c.transport))
+        'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName),
     },
     VmessConfig c => {
       'type': 'vmess',
@@ -111,7 +195,8 @@ class WindowsVpnDatasource {
       'alter_id': c.alterId,
       'security': c.security.isEmpty ? 'auto' : c.security,
       if (c.tls == 'tls') 'tls': {'enabled': true, 'server_name': c.sni},
-      if (_hasTransport(c.network)) 'transport': _transport(c.network, c.path, c.wsHost, ''),
+      if (_hasTransport(c.network))
+        'transport': _transport(c.network, c.path, c.wsHost, ''),
     },
     TrojanConfig c => {
       'type': 'trojan',
@@ -124,7 +209,8 @@ class WindowsVpnDatasource {
         'server_name': c.sni,
         if (c.alpn.isNotEmpty) 'alpn': c.alpn.split(','),
       },
-      if (_hasTransport(c.transport)) 'transport': _transport(c.transport, c.path, c.transportHost, ''),
+      if (_hasTransport(c.transport))
+        'transport': _transport(c.transport, c.path, c.transportHost, ''),
     },
     ShadowsocksConfig c => {
       'type': 'shadowsocks',
@@ -144,7 +230,6 @@ class WindowsVpnDatasource {
         'enabled': true,
         if (c.sni.isNotEmpty) 'server_name': c.sni,
         if (c.insecure) 'insecure': true,
-        if (c.pinSha256.isNotEmpty) 'certificate_path': '',
       },
       if (c.obfs.isNotEmpty) 'obfs': {'type': c.obfs, 'password': c.obfsPassword},
     },
@@ -167,38 +252,32 @@ class WindowsVpnDatasource {
     return tls;
   }
 
-  bool _hasTransport(String t) =>
-      t.isNotEmpty && t != 'tcp';
+  bool _hasTransport(String t) => t.isNotEmpty && t != 'tcp';
 
   Map<String, dynamic> _transport(
-      String type, String path, String host, String grpcService) {
-    final t = type == 'xhttp' ? 'xhttp' : type;
-    return switch (t) {
-      'ws' => {
-        'type': 'ws',
-        'path': path.isEmpty ? '/' : path,
-        if (host.isNotEmpty) 'headers': {'Host': host},
-      },
-      'h2' || 'http' => {
-        'type': 'http',
-        'path': path.isEmpty ? '/' : path,
-        if (host.isNotEmpty) 'host': [host],
-      },
-      'grpc' => {
-        'type': 'grpc',
-        'service_name': grpcService,
-      },
-      'xhttp' => {
-        'type': 'xhttp',
-        'path': path.isEmpty ? '/' : path,
-        if (host.isNotEmpty) 'host': host,
-      },
-      'httpupgrade' => {
-        'type': 'httpupgrade',
-        'path': path.isEmpty ? '/' : path,
-        if (host.isNotEmpty) 'host': host,
-      },
-      _ => {'type': t},
-    };
-  }
+      String type, String path, String host, String grpcService) =>
+      switch (type) {
+        'ws' => {
+          'type': 'ws',
+          'path': path.isEmpty ? '/' : path,
+          if (host.isNotEmpty) 'headers': {'Host': host},
+        },
+        'h2' || 'http' => {
+          'type': 'http',
+          'path': path.isEmpty ? '/' : path,
+          if (host.isNotEmpty) 'host': [host],
+        },
+        'grpc' => {'type': 'grpc', 'service_name': grpcService},
+        'xhttp' => {
+          'type': 'xhttp',
+          'path': path.isEmpty ? '/' : path,
+          if (host.isNotEmpty) 'host': host,
+        },
+        'httpupgrade' => {
+          'type': 'httpupgrade',
+          'path': path.isEmpty ? '/' : path,
+          if (host.isNotEmpty) 'host': host,
+        },
+        _ => {'type': type},
+      };
 }
