@@ -6,7 +6,7 @@ AppPublisherURL=https://honeyvpn.ru
 AppSupportURL=https://t.me/honeyvpnmanager
 DefaultDirName={autopf}\HoneyProxyUtility
 DefaultGroupName=HoneyProxyUtility
-OutputDir=..\..\build\windows\installer
+OutputDir=..\build\windows\installer
 OutputBaseFilename=HoneyProxyUtility-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -22,7 +22,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Создать значок на рабочем столе"; GroupDescription: "Дополнительные задачи"
 
 [Files]
-Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\HoneyProxyUtility"; Filename: "{app}\nexproxy.exe"
