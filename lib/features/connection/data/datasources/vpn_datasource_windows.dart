@@ -168,7 +168,7 @@ class WindowsVpnDatasource {
       m['tlsSettings'] = {
         'serverName': c.sni,
         if (c.fingerprint.isNotEmpty) 'fingerprint': c.fingerprint,
-        if (c.alpn.isNotEmpty) 'alpn': c.alpn.split(','),
+
       };
     }
     _applyTransport(m, net, c.path, c.transportHost, c.grpcServiceName);
@@ -192,7 +192,7 @@ class WindowsVpnDatasource {
       'security': c.security.isEmpty ? 'tls' : c.security,
       'tlsSettings': {
         'serverName': c.sni,
-        if (c.alpn.isNotEmpty) 'alpn': c.alpn.split(','),
+
         if (c.fingerprint.isNotEmpty) 'fingerprint': c.fingerprint,
       },
     };
