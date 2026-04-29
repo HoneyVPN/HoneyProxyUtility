@@ -38,7 +38,7 @@ class WindowsVpnDatasource {
       throw Exception('sing-box.exe not found at ${sbExe.path}');
     }
 
-    onStatusChanged(const V2RayStatus(state: 'CONNECTING'));
+    onStatusChanged(V2RayStatus(state: 'CONNECTING'));
 
     _sbProcess = await Process.start(sbExe.path, ['run', '-c', cfgFile.path]);
     _connectedAt = DateTime.now();
@@ -50,7 +50,7 @@ class WindowsVpnDatasource {
 
     await _setSystemProxy('127.0.0.1', _httpPort);
 
-    onStatusChanged(const V2RayStatus(state: 'CONNECTED'));
+    onStatusChanged(V2RayStatus(state: 'CONNECTED'));
 
     _startStatsStream();
   }
@@ -84,8 +84,8 @@ class WindowsVpnDatasource {
 
             onStatusChanged(V2RayStatus(
               state:         'CONNECTED',
-              uploadSpeed:   up.toDouble(),
-              downloadSpeed: down.toDouble(),
+              uploadSpeed:   up,
+              downloadSpeed: down,
               upload:        _totalUp,
               download:      _totalDown,
               duration:      '$h:$m:$s',
@@ -125,7 +125,7 @@ class WindowsVpnDatasource {
     _sbProcess?.kill();
     _sbProcess = null;
     try { await _clearSystemProxy(); } catch (_) {}
-    onStatusChanged(const V2RayStatus(state: 'DISCONNECTED'));
+    onStatusChanged(V2RayStatus(state: 'DISCONNECTED'));
   }
 
   Future<int> ping(ParsedProxy proxy) async {
