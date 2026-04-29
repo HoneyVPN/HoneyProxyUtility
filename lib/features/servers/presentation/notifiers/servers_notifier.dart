@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform, Socket;
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -109,18 +110,26 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
   }
 
   Future<double> testLatency(ServerProfileModel server) async {
-    // hy2/tuic use QUIC (UDP) — TCP-ping their port will timeout;
-    // use port 443 as a reachability probe instead.
     final pingPort = (server.protocol == 'hy2' || server.protocol == 'tuic') ? 443 : server.port;
     try {
-      final resp = await Dio().get<Map<String, dynamic>>(
-        '/proxy/ping',
-        queryParameters: {'host': server.host, 'port': pingPort},
-        options: Options(receiveTimeout: const Duration(seconds: 8)),
-      );
-      final result = resp.data ?? {};
-      if (result.containsKey('error')) throw Exception(result['error']);
-      final ms = (result['ms'] as num).toDouble();
+      double ms;
+      if (Platform.isAndroid || Platform.isIOS) {
+        final resp = await Dio().get<Map<String, dynamic>>(
+          '/proxy/ping',
+          queryParameters: {'host': server.host, 'port': pingPort},
+          options: Options(receiveTimeout: const Duration(seconds: 8)),
+        );
+        final result = resp.data ?? {};
+        if (result.containsKey('error')) throw Exception(result['error']);
+        ms = (result['ms'] as num).toDouble();
+      } else {
+        final sw = Stopwatch()..start();
+        final sock = await Socket.connect(server.host, pingPort,
+            timeout: const Duration(seconds: 5));
+        sw.stop();
+        sock.destroy();
+        ms = sw.elapsedMilliseconds.toDouble();
+      }
       await updateLatency(server.id, ms);
       return ms;
     } catch (_) {
