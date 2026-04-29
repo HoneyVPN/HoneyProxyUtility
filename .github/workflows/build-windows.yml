@@ -1,0 +1,78 @@
+name: Build Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Patch pubspec — add Windows stub for flutter_v2ray
+        shell: python
+        run: |
+          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+              content = f.read()
+          override = (
+              '\ndependency_overrides:\n'
+              '  flutter_v2ray:\n'
+              '    path: windows/flutter_v2ray_stub\n'
+          )
+          if 'dependency_overrides' not in content:
+              content += override
+          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+              f.write(content)
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Create installer output directory
+        run: New-Item -ItemType Directory -Force -Path build\windows\installer
+        shell: powershell
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer
+        run: iscc windows\installer.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoneyProxyUtility-Windows-Setup
+          path: build\windows\installer\HoneyProxyUtility-Setup.exe
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build\windows\installer\HoneyProxyUtility-Setup.exe
+          name: HoneyProxyUtility ${{ github.ref_name }}
+          body: |
+            ## HoneyProxyUtility ${{ github.ref_name }} — Windows
+
+            **Скачать:** `HoneyProxyUtility-Setup.exe`
+
+            ### Установка
+            1. Запусти установщик
+            2. Следуй инструкциям
+            3. Запусти приложение и добавь подписку через @honeyvpnru_bot
