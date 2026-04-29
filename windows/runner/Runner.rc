@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "ru.honeyvpn" "\0"
-            VALUE "FileDescription", "nexproxy" "\0"
+            VALUE "FileDescription", "HoneyProxyUtility" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "nexproxy" "\0"
+            VALUE "InternalName", "HoneyProxyUtility" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 ru.honeyvpn. All rights reserved." "\0"
-            VALUE "OriginalFilename", "nexproxy.exe" "\0"
-            VALUE "ProductName", "nexproxy" "\0"
+            VALUE "OriginalFilename", "HoneyProxyUtility.exe" "\0"
+            VALUE "ProductName", "HoneyProxyUtility" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
