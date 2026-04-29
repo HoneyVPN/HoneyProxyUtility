@@ -44,6 +44,14 @@ jobs:
       - name: Build Windows release
         run: flutter build windows --release
 
+      - name: Download xray-core
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path build\windows\xray
+          Invoke-WebRequest -Uri "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip" -OutFile "xray.zip"
+          Expand-Archive -Path "xray.zip" -DestinationPath "build\windows\xray" -Force
+          Copy-Item "build\windows\xray\xray.exe" "build\windows\x64\runner\Release\xray.exe"
+
       - name: Create installer output directory
         run: New-Item -ItemType Directory -Force -Path build\windows\installer
         shell: powershell
