@@ -44,7 +44,7 @@ class XrayConfigGenerator {
         TrojanConfig c => _trojan(c),
         ShadowsocksConfig c => _shadowsocks(c),
         _ => throw UnsupportedError(
-            '${proxy.protocolLabel} is not yet supported via XRay core'),
+            '${proxy.protocolLabel} не поддерживается на Android. Используйте серверы VLESS Reality, xHTTP, VMess, Trojan или Shadowsocks.'),
       };
 
   Map<String, dynamic> _vmess(VmessConfig c) => {
