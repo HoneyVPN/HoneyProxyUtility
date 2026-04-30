@@ -2,8 +2,8 @@ library flutter_v2ray;
 
 class V2RayStatus {
   final String state;
-  final double uploadSpeed;
-  final double downloadSpeed;
+  final int uploadSpeed;
+  final int downloadSpeed;
   final int upload;
   final int download;
   final String duration;
