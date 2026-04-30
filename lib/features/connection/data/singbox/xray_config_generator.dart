@@ -205,6 +205,17 @@ class XrayConfigGenerator {
       };
     } else if (net == 'grpc') {
       stream['grpcSettings'] = {'serviceName': path};
+    } else if (net == 'xhttp' || net == 'splithttp') {
+      stream['network'] = 'xhttp';
+      stream['xhttpSettings'] = {
+        'path': path.isEmpty ? '/' : path,
+        if (host.isNotEmpty) 'host': host,
+      };
+    } else if (net == 'httpupgrade') {
+      stream['httpupgradeSettings'] = {
+        'path': path.isEmpty ? '/' : path,
+        if (host.isNotEmpty) 'host': host,
+      };
     } else if (net == 'h2' || net == 'http') {
       stream['network'] = 'h2';
       stream['httpSettings'] = {

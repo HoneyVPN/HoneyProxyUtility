@@ -37,6 +37,7 @@ class VlessParser extends BaseProxyParser<VlessConfig> {
       path: BaseProxyParser.decodeUri(p['path'] ?? '/'),
       transportHost: p['host'] ?? '',
       grpcServiceName: p['serviceName'] ?? '',
+      xhttpMode: p['mode'] ?? '',
     );
   }
 }

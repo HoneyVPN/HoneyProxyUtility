@@ -62,6 +62,7 @@ final class VlessConfig extends ParsedProxy {
     required this.path,
     required this.transportHost,
     required this.grpcServiceName,
+    this.xhttpMode = '',
   });
 
   @override final String name;
@@ -80,6 +81,7 @@ final class VlessConfig extends ParsedProxy {
   final String path;
   final String transportHost;
   final String grpcServiceName;
+  final String xhttpMode;
 
   @override String get protocolLabel => 'VLESS';
 }
