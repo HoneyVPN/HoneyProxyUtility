@@ -13,9 +13,7 @@ import '../../../servers/data/models/server_profile_model.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../servers/presentation/widgets/server_list_tile.dart';
 import '../../../subscriptions/presentation/screens/subscriptions_screen.dart';
-
-const _defaultSubUrl = 'https://sub.honeyvpn.ru/ext/5BQLnwsNJ5nvF6dH';
-const _upgradeUrl = 'https://t.me/honeyvpnru_bot';
+import '../../../update/update_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -27,69 +25,69 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final Set<String> _collapsed = {};
   bool _testingAll = false;
+  bool _updateDismissed = false;
 
   @override
   Widget build(BuildContext context) {
-    final conn    = ref.watch(connectionNotifierProvider);
+    final conn = ref.watch(connectionNotifierProvider);
     final selected = ref.watch(selectedServerProvider);
-    final servers  = ref.watch(serversNotifierProvider);
+    final servers = ref.watch(serversNotifierProvider);
     final subsState = ref.watch(subscriptionsProvider).value;
     final subs = subsState?.subs ?? [];
     final s = ref.watch(stringsProvider);
+    final update = ref.watch(updateProvider).value;
 
     final subNames = <String, String>{
-      for (final sub in subs)
-        sub.url: sub.name.isNotEmpty ? sub.name : _hostFromUrl(sub.url),
+      for (final sub in subs) sub.url: sub.name.isNotEmpty ? sub.name : _hostFromUrl(sub.url),
     };
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Honey'),
+        actions: [
+          if (subsState?.subs.isNotEmpty == true)
+            IconButton(
+              icon: const Icon(Icons.subscriptions_outlined),
+              tooltip: s.subscriptionsTooltip,
+              onPressed: () => context.push('/subscriptions'),
+            ),
+          if (servers.value?.isNotEmpty == true) ...[
+            if (subsState?.subs.isNotEmpty == true)
+              IconButton(
+                icon: const Icon(Icons.sync),
+                tooltip: s.refreshSubsTooltip,
+                onPressed: () => ref.read(subscriptionsProvider.notifier).refreshAll(),
+              ),
+            _testingAll
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.network_ping),
+                    tooltip: s.pingAllTooltip,
+                    onPressed: _testAll,
+                  ),
+          ],
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: s.importServerTooltip,
+            onPressed: () => context.push('/converter'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => context.push('/settings'),
+          ),
+        ],
+      ),
       body: CustomScrollView(
         slivers: [
-          // ── App bar ───────────────────────────────────────────────────────
-          SliverAppBar(
-            title: const Text('Honey'),
-            floating: true,
-            snap: true,
-            actions: [
-              if (subsState?.subs.isNotEmpty == true)
-                IconButton(
-                  icon: const Icon(Icons.subscriptions_outlined, size: 20),
-                  tooltip: s.subscriptionsTooltip,
-                  onPressed: () => context.push('/subscriptions'),
-                ),
-              if (servers.value?.isNotEmpty == true && subsState?.subs.isNotEmpty == true)
-                IconButton(
-                  icon: const Icon(Icons.sync_rounded, size: 20),
-                  tooltip: s.refreshSubsTooltip,
-                  onPressed: () => ref.read(subscriptionsProvider.notifier).refreshAll(),
-                ),
-              if (servers.value?.isNotEmpty == true)
-                _testingAll
-                    ? const Padding(
-                        padding: EdgeInsets.all(14),
-                        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                      )
-                    : IconButton(
-                        icon: const Icon(Icons.network_ping_outlined, size: 20),
-                        tooltip: s.pingAllTooltip,
-                        onPressed: _testAll,
-                      ),
-              IconButton(
-                icon: const Icon(Icons.add_rounded, size: 22),
-                tooltip: s.importServerTooltip,
-                onPressed: () => context.push('/converter'),
-              ),
-              IconButton(
-                icon: const Icon(Icons.tune_outlined, size: 20),
-                onPressed: () => context.push('/settings'),
-              ),
-              const SizedBox(width: 4),
-            ],
-          ),
-
-          // ── Hero: connect section ─────────────────────────────────────────
+          // ── Status / Connect card ────────────────────────────────────────
           SliverToBoxAdapter(
-            child: _HeroSection(
+            child: _StatusCard(
               conn: conn,
               selected: selected,
               s: s,
@@ -97,16 +95,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
-          // ── Speed stats ───────────────────────────────────────────────────
+          // ── Speed stats (when connected) ─────────────────────────────────
           if (conn.isConnected)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: SpeedStatsBar(stats: conn.stats),
               ),
             ),
 
-          // ── Error banner ──────────────────────────────────────────────────
+          // ── Error banner ─────────────────────────────────────────────────
           if (conn.status == ConnectionStatus.error && conn.errorMessage != null)
             SliverToBoxAdapter(
               child: Padding(
@@ -115,7 +113,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-          // ── Server list ───────────────────────────────────────────────────
+          // ── Update banner ─────────────────────────────────────────────────
+          if (!_updateDismissed && update != null && update.hasUpdate)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: _UpdateBanner(
+                  info: update,
+                  onDismiss: () => setState(() => _updateDismissed = true),
+                ),
+              ),
+            ),
+
+          // ── Server list ──────────────────────────────────────────────────
           servers.when(
             loading: () => const SliverFillRemaining(
               child: Center(child: CircularProgressIndicator()),
@@ -134,6 +144,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               for (final sv in list) {
                 (groups[sv.subscriptionId] ??= []).add(sv);
               }
+
               final keys = groups.keys.toList()
                 ..sort((a, b) {
                   if (a.isEmpty) return -1;
@@ -143,7 +154,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
               final items = <Widget>[];
               for (int gi = 0; gi < keys.length; gi++) {
-                final key   = keys[gi];
+                final key = keys[gi];
                 final group = groups[key]!;
                 final isCollapsed = _collapsed.contains(key);
                 final label = key.isEmpty ? s.manualGroup : (subNames[key] ?? _hostFromUrl(key));
@@ -169,20 +180,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       onTapDetail: () => context.push('/servers/${sv.id}'),
                     ));
                   }
-                  if (key == _defaultSubUrl || key.contains("honeyvpn.ru")) items.add(const _UpgradeBanner());
                 }
 
                 if (gi < keys.length - 1) {
                   items.add(Divider(
-                    height: 1, indent: 16, endIndent: 16,
-                    color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.5),
+                    height: 1,
+                    color: Theme.of(context).colorScheme.outlineVariant,
                   ));
                 }
               }
 
               return SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (_, i) => i == items.length ? const SizedBox(height: 100) : items[i],
+                  (_, i) => i == items.length
+                      ? const SizedBox(height: 80)
+                      : items[i],
                   childCount: items.length + 1,
                 ),
               );
@@ -223,8 +235,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onPressed: () {
               Navigator.pop(c);
               if (subscriptionId.isNotEmpty) {
-                final allSubs = ref.read(subscriptionsProvider).value?.subs ?? [];
-                final sub = allSubs.where((sub) => sub.url == subscriptionId).firstOrNull;
+                final subs = ref.read(subscriptionsProvider).value?.subs ?? [];
+                final sub = subs.where((sub) => sub.url == subscriptionId).firstOrNull;
                 if (sub != null) {
                   ref.read(subscriptionsProvider.notifier).delete(sub.id);
                   return;
@@ -272,15 +284,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-// ── Hero connect section ──────────────────────────────────────────────────────
+// ── Status / Connect card ─────────────────────────────────────────────────────
 
-class _HeroSection extends StatelessWidget {
+class _StatusCard extends StatelessWidget {
   final NexConnectionState conn;
   final ServerProfileModel? selected;
   final S s;
   final VoidCallback onConnectTap;
 
-  const _HeroSection({
+  const _StatusCard({
     required this.conn,
     required this.selected,
     required this.s,
@@ -290,15 +302,12 @@ class _HeroSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
     final statusColor = switch (conn.status) {
-      ConnectionStatus.connected    => NexColors.connected,
-      ConnectionStatus.connecting
-      || ConnectionStatus.preparing => NexColors.connecting,
-      ConnectionStatus.error        => NexColors.error,
-      _                             => cs.onSurfaceVariant.withOpacity(0.4),
+      ConnectionStatus.connected => NexColors.connected,
+      ConnectionStatus.connecting || ConnectionStatus.preparing => NexColors.connecting,
+      ConnectionStatus.error => NexColors.error,
+      _ => NexColors.disconnected,
     };
-
     final statusLabel = switch (conn.status) {
       ConnectionStatus.connected     => s.statusConnected,
       ConnectionStatus.connecting    => s.statusConnecting,
@@ -308,68 +317,77 @@ class _HeroSection extends StatelessWidget {
       _                              => s.statusDisconnected,
     };
 
-    final serverLabel = selected != null
-        ? (selected!.name.isNotEmpty ? selected!.name : selected!.host)
-        : s.noServerSelected;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      child: Column(
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: statusColor.withOpacity(conn.isConnected ? 0.4 : 0.15),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: statusColor.withOpacity(conn.isConnected ? 0.07 : 0.02),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
         children: [
-          // Status pill
+          // Status orb
           AnimatedContainer(
-            duration: const Duration(milliseconds: 400),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            duration: const Duration(milliseconds: 500),
+            width: 50,
+            height: 50,
             decoration: BoxDecoration(
+              shape: BoxShape.circle,
               color: statusColor.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 400),
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: statusColor,
-                    boxShadow: conn.isConnected
-                        ? [BoxShadow(color: statusColor.withOpacity(0.6), blurRadius: 6)]
-                        : null,
-                  ),
+              border: Border.all(color: statusColor.withOpacity(0.45), width: 1.5),
+              boxShadow: conn.isConnected ? [
+                BoxShadow(
+                  color: statusColor.withOpacity(0.25),
+                  blurRadius: 14,
+                  spreadRadius: 2,
                 ),
-                const SizedBox(width: 7),
+              ] : null,
+            ),
+            child: Icon(
+              conn.isConnected ? Icons.shield : Icons.shield_outlined,
+              color: statusColor,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 14),
+          // Status text
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
                   statusLabel,
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
                     color: statusColor,
                   ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  selected != null
+                      ? (selected!.name.isNotEmpty ? selected!.name : selected!.host)
+                      : s.noServerSelected,
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-
-          const SizedBox(height: 24),
-
-          // Connect button
+          const SizedBox(width: 12),
           ConnectButton(status: conn.status, onTap: onConnectTap),
-
-          const SizedBox(height: 20),
-
-          // Server name
-          Text(
-            serverLabel,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: cs.onSurfaceVariant,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
         ],
       ),
     );
@@ -401,51 +419,50 @@ class _GroupHeader extends StatelessWidget {
     return InkWell(
       onTap: onToggle,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 6, 6),
+        padding: const EdgeInsets.only(left: 16, right: 4, top: 8, bottom: 8),
         child: Row(
           children: [
             Container(
-              width: 6, height: 6,
+              width: 7, height: 7,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: isManual ? cs.outline : NexPalette.accent,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
-                label.toUpperCase(),
+                label,
                 style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 11,
-                  letterSpacing: 0.6,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                  letterSpacing: 0.3,
                   color: cs.onSurfaceVariant,
                 ),
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
               decoration: BoxDecoration(
                 color: cs.surfaceContainer,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
                 '$count',
-                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant, fontWeight: FontWeight.w600),
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant, fontWeight: FontWeight.w500),
               ),
             ),
-            const SizedBox(width: 2),
             Icon(
-              isCollapsed ? Icons.expand_more_rounded : Icons.expand_less_rounded,
+              isCollapsed ? Icons.expand_more : Icons.expand_less,
               size: 18,
-              color: cs.onSurfaceVariant.withOpacity(0.6),
+              color: cs.onSurfaceVariant,
             ),
             InkWell(
               onTap: onDeleteGroup,
               borderRadius: BorderRadius.circular(8),
               child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Icon(Icons.delete_sweep_outlined, size: 16, color: cs.error.withOpacity(0.45)),
+                padding: const EdgeInsets.all(6),
+                child: Icon(Icons.delete_sweep_outlined, size: 17, color: cs.error.withOpacity(0.55)),
               ),
             ),
           ],
@@ -469,87 +486,21 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.power_settings_new_rounded, size: 52, color: cs.outline.withOpacity(0.5)),
-          const SizedBox(height: 20),
+          Icon(Icons.shield_outlined, size: 56, color: cs.outline),
+          const SizedBox(height: 16),
           Text(s.noServersYet, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           Text(
             s.noServersSubtitle,
             style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
-            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: onAdd,
-            icon: const Icon(Icons.add_rounded, size: 18),
+            icon: const Icon(Icons.add, size: 18),
             label: Text(s.importServerButton),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ── Upgrade banner ───────────────────────────────────────────────────────────
-
-class _UpgradeBanner extends StatelessWidget {
-  const _UpgradeBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    const gold = Color(0xFFFFB300);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: InkWell(
-        onTap: () => launchUrl(Uri.parse(_upgradeUrl), mode: LaunchMode.externalApplication),
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [gold.withOpacity(0.13), gold.withOpacity(0.04)],
-            ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: gold.withOpacity(0.28)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: gold.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.bolt_rounded, color: gold, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Hysteria2 — в 3× быстрее',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: gold),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Личный сервер · без ограничений · без логов',
-                      style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.55)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Купить →',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: gold),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -563,19 +514,74 @@ class _ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: NexColors.error.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: NexColors.error.withOpacity(0.2)),
+        border: Border.all(color: NexColors.error.withOpacity(0.25)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline_rounded, color: NexColors.error, size: 17),
+          const Icon(Icons.error_outline, color: NexColors.error, size: 18),
           const SizedBox(width: 8),
-          Expanded(child: Text(message, style: const TextStyle(color: NexColors.error, fontSize: 12))),
+          Expanded(child: Text(message, style: const TextStyle(color: NexColors.error, fontSize: 13))),
+        ],
+      ),
+    );
+  }
+}
+
+class _UpdateBanner extends StatelessWidget {
+  final UpdateInfo info;
+  final VoidCallback onDismiss;
+  const _UpdateBanner({required this.info, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: NexPalette.accent.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: NexPalette.accent.withOpacity(0.30)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.system_update_outlined, color: NexPalette.accent, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Доступна версия ${info.remoteVersion}',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: NexPalette.accent),
+                ),
+                Text(
+                  'Установлена ${info.currentVersion}',
+                  style: TextStyle(fontSize: 11, color: NexPalette.accent.withOpacity(0.7)),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: info.downloadUrl.isNotEmpty
+                ? () => launchUrl(Uri.parse(info.downloadUrl), mode: LaunchMode.externalApplication)
+                : null,
+            style: TextButton.styleFrom(
+              foregroundColor: NexPalette.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Скачать', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: onDismiss,
+            child: Icon(Icons.close, size: 16, color: NexPalette.accent.withOpacity(0.6)),
+          ),
         ],
       ),
     );
