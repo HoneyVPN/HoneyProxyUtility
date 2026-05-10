@@ -228,11 +228,11 @@ class WindowsVpnDatasource {
     'outbounds': [
       _buildOutbound(proxy),
       {'type': 'direct', 'tag': 'direct'},
-      {'type': 'dns',    'tag': 'dns-out'},
+  
     ],
     'route': {
       'rules': [
-        {'protocol': 'dns',        'outbound': 'dns-out'},
+        {'protocol': 'dns', 'action': 'hijack-dns'},
         {'ip_is_private': true,    'outbound': 'direct'},
       ],
       'final': 'proxy',
