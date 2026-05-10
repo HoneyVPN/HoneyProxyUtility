@@ -75,21 +75,14 @@ jobs:
           retention-days: 30
 
       - name: Deploy EXE to honeyvpn.ru
-        shell: powershell
-        run: |
-          $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
-          $filePath = "build\windows\installer\HoneyProxyUtility-Setup.exe"
-          $uri = "https://api.honeyvpn.ru/deploy/windows"
-          $form = @{ file = Get-Item $filePath }
-          Invoke-RestMethod -Uri $uri -Method Post -Form $form -Headers @{ "X-Deploy-Token" = $token }
+        run: curl.exe -X POST https://api.honeyvpn.ru/deploy/windows -H "X-Deploy-Token: 3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a" -F "file=@build/windows/installer/HoneyProxyUtility-Setup.exe" --fail --show-error --max-time 300
+        shell: cmd
 
       - name: Update version on honeyvpn.ru
-        shell: powershell
-        run: |
-          $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
-          $tag = "${{ github.ref_name }}".TrimStart("v")
-          $body = ConvertTo-Json @{ version = $tag }
-          Invoke-RestMethod -Uri "https://api.honeyvpn.ru/deploy/version" -Method Post -Body $body -ContentType "application/json" -Headers @{ "X-Deploy-Token" = $token }
+        run: curl.exe -X POST https://api.honeyvpn.ru/deploy/version -H "Content-Type: application/json" -H "X-Deploy-Token: 3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a" -d "{\"version\":\"%TAG_VERSION%\"}" --fail
+        shell: cmd
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
