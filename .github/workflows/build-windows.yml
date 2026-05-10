@@ -26,18 +26,18 @@ jobs:
       - name: Patch pubspec — add Windows stubs
         shell: python
         run: |
-          with open('pubspec.yaml', 'r', encoding='utf-8') as f:
+          with open("pubspec.yaml", "r", encoding="utf-8") as f:
               content = f.read()
           override = (
-              '\ndependency_overrides:\n'
-              '  flutter_v2ray:\n'
-              '    path: windows/flutter_v2ray_stub\n'
-              '  mobile_scanner:\n'
-              '    path: windows/mobile_scanner_stub\n'
+              "\ndependency_overrides:\n"
+              "  flutter_v2ray:\n"
+              "    path: windows/flutter_v2ray_stub\n"
+              "  mobile_scanner:\n"
+              "    path: windows/mobile_scanner_stub\n"
           )
-          if 'dependency_overrides' not in content:
+          if "dependency_overrides" not in content:
               content += override
-          with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+          with open("pubspec.yaml", "w", encoding="utf-8") as f:
               f.write(content)
 
       - name: Enable Windows desktop
@@ -60,8 +60,8 @@ jobs:
           Copy-Item $exe.FullName "build\windows\x64\runner\Release\sing-box.exe"
 
       - name: Create installer output directory
-        run: New-Item -ItemType Directory -Force -Path build\windows\installer
         shell: powershell
+        run: New-Item -ItemType Directory -Force -Path build\windows\installer
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
@@ -80,23 +80,33 @@ jobs:
         shell: powershell
         run: |
           $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
+          $tag = "${{ github.ref_name }}".TrimStart("v")
           $file = "build\windows\installer\HoneyProxyUtility-Setup.exe"
           $uri = "https://api.honeyvpn.ru/deploy/windows"
           curl.exe -X POST $uri -H "X-Deploy-Token: $token" -H "X-Version: $tag" -F "file=@$file" --fail --show-error --max-time 300
 
+      - name: Update version on honeyvpn.ru
+        shell: powershell
+        run: |
+          $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $body = "{`"version`":`"$tag`"}"
+          curl.exe -X POST https://api.honeyvpn.ru/deploy/version -H "Content-Type: application/json" -H "X-Deploy-Token: $token" -d $body --fail --show-error
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build\windows\installer\HoneyProxyUtility-Setup.exe
-          name: HoneyProxyUtility ${{ github.ref_name }}
-          body: |
-            ## HoneyProxyUtility ${{ github.ref_name }} — Windows
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "build/windows/installer/HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" \
+            --title "HoneyProxyUtility ${{ github.ref_name }}" \
+            --notes "## HoneyProxyUtility ${{ github.ref_name }} — Windows
 
-            **Скачать:** `HoneyProxyUtility-Setup.exe`
+**Скачать:** \`HoneyProxyUtility-Setup.exe\`
 
-            ### Установка
-            1. Запусти установщик
-            2. Следуй инструкциям
-            3. Запусти приложение и добавь подписку через @honeyvpnru_bot
+### Установка
+1. Запусти установщик
+2. Следуй инструкциям
+3. Запусти приложение и добавь подписку через @honeyvpnru_bot"
