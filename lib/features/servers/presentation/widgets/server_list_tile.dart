@@ -1,3 +1,4 @@
+import 'package:country_flags/country_flags.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +7,29 @@ import '../../data/models/server_profile_model.dart';
 import '../notifiers/servers_notifier.dart';
 import 'latency_badge.dart';
 import 'protocol_chip.dart';
+
+String _countryCode(String name) {
+  final runes = name.runes.toList();
+  if (runes.length >= 2 &&
+      runes[0] >= 0x1F1E6 && runes[0] <= 0x1F1FF &&
+      runes[1] >= 0x1F1E6 && runes[1] <= 0x1F1FF) {
+    return String.fromCharCode(runes[0] - 0x1F1E6 + 65) +
+        String.fromCharCode(runes[1] - 0x1F1E6 + 65);
+  }
+  return '';
+}
+
+String _stripFlag(String name) {
+  final runes = name.runes.toList();
+  if (runes.length >= 2 &&
+      runes[0] >= 0x1F1E6 && runes[0] <= 0x1F1FF &&
+      runes[1] >= 0x1F1E6 && runes[1] <= 0x1F1FF) {
+    var i = 2;
+    if (runes.length > i && runes[i] == 32) i++;
+    return String.fromCharCodes(runes.sublist(i));
+  }
+  return name;
+}
 
 class ServerListTile extends ConsumerStatefulWidget {
   final ServerProfileModel server;
@@ -42,6 +66,10 @@ class _ServerListTileState extends ConsumerState<ServerListTile> {
     final cs = Theme.of(context).colorScheme;
     final server = widget.server;
     final selected = widget.isSelected;
+    final code = _countryCode(server.name);
+    final displayName = code.isNotEmpty
+        ? _stripFlag(server.name)
+        : (server.name.isNotEmpty ? server.name : server.host);
 
     return InkWell(
       onTap: widget.onTap,
@@ -59,17 +87,25 @@ class _ServerListTileState extends ConsumerState<ServerListTile> {
         child: Row(
           children: [
             ProtocolChip(protocol: server.protocol),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
+            if (code.isNotEmpty) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: CountryFlag.fromCountryCode(code, height: 14, width: 20),
+              ),
+              const SizedBox(width: 6),
+            ] else
+              const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    server.name.isNotEmpty ? server.name : server.host,
+                    displayName,
                     style: TextStyle(
                       fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                       fontSize: 15,
-                      color: selected ? cs.onSurface : cs.onSurface,
+                      color: cs.onSurface,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
