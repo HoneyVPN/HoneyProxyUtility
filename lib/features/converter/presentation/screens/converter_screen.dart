@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
+import '../widgets/qr_scan_dialog.dart';
 
 import '../../data/parsers/base_parser.dart';
 import '../../data/parsers/link_dispatcher.dart';
@@ -235,6 +237,25 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+                        OutlinedButton(
+                          onPressed: () async {
+                            final result = await showModalBottomSheet<String>(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (_) => const QrScanDialog(),
+                            );
+                            if (result != null && result.isNotEmpty) {
+                              notifier.setInitialText(result);
+                              _ctrl.text = result;
+                              notifier.parse();
+                            }
+                          },
+                          child: const Icon(Icons.qr_code_scanner, size: 20),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: s.importing ? null : notifier.parse,

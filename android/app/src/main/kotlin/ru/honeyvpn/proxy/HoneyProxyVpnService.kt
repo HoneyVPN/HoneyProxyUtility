@@ -1,4 +1,4 @@
-package com.nexproxy
+package ru.honeyvpn.proxy
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -11,7 +11,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 
-class NexProxyVpnService : VpnService() {
+class HoneyProxyVpnService : VpnService() {
 
     companion object {
         const val TAG = "HoneyVPN"

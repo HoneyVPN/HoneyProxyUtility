@@ -1,4 +1,4 @@
-package com.nexproxy
+package ru.honeyvpn.proxy
 
 import android.content.Context
 import android.content.Intent
@@ -84,16 +84,16 @@ class NativeBindings(
     }
 
     private fun startVpn(configJson: String) {
-        val intent = Intent(context, NexProxyVpnService::class.java).apply {
-            action = NexProxyVpnService.ACTION_START
+        val intent = Intent(context, HoneyProxyVpnService::class.java).apply {
+            action = HoneyProxyVpnService.ACTION_START
             putExtra("config_json", configJson)
         }
         context.startForegroundService(intent)
     }
 
     private fun stopVpn() {
-        val intent = Intent(context, NexProxyVpnService::class.java).apply {
-            action = NexProxyVpnService.ACTION_STOP
+        val intent = Intent(context, HoneyProxyVpnService::class.java).apply {
+            action = HoneyProxyVpnService.ACTION_STOP
         }
         context.startService(intent)
     }
