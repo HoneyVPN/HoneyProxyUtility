@@ -92,5 +92,4 @@ jobs:
         shell: powershell
         run: |
           $tag = "${{ github.ref_name }}"
-          $notes = "## HoneyProxyUtility $tag — Windows`n`n**Скачать:** HoneyProxyUtility-Setup.exe`n`n### Установка`n1. Запусти установщик`n2. Следуй инструкциям`n3. Запусти приложение"
-          gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --title "HoneyProxyUtility $tag" --notes $notes
+          gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --title "HoneyProxyUtility $tag" --generate-notes
