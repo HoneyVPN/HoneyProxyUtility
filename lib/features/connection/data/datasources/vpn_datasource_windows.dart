@@ -43,13 +43,29 @@ class WindowsVpnDatasource {
 
     onStatusChanged(V2RayStatus(state: 'CONNECTING'));
 
-    _sbProcess = await Process.start(sbExe.path, ['run', '-c', cfgFile.path]);
+    final proc = await Process.start(sbExe.path, ['run', '-c', cfgFile.path]);
+    _sbProcess = proc;
     _connectedAt = DateTime.now();
-    _totalUp     = 0;
-    _totalDown   = 0;
+    _totalUp = 0;
+    _totalDown = 0;
 
-    // Give sing-box time to start and open the API / TUN interface
-    await Future.delayed(const Duration(milliseconds: 1500));
+    final stderrBuf = StringBuffer();
+    proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((s) => stderrBuf.write(s));
+
+    proc.exitCode.then((code) {
+      if (_sbProcess == proc) {
+        _sbProcess = null;
+        onStatusChanged(V2RayStatus(state: 'DISCONNECTED'));
+      }
+    });
+
+    await Future.delayed(const Duration(milliseconds: 2000));
+
+    if (_sbProcess == null) {
+      final err = stderrBuf.toString().trim();
+      final lastLine = err.isNotEmpty ? err.split('\n').last : 'unknown error';
+      throw Exception('sing-box exited unexpectedly: $lastLine');
+    }
 
     if (!_tunMode) {
       await _setSystemProxy('127.0.0.1', _httpPort);

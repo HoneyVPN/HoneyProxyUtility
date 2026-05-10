@@ -95,6 +95,14 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     state = AsyncData(updated);
   }
 
+  Future<void> deleteAll(List<int> ids) async {
+    final current = state.value ?? [];
+    final idSet = ids.toSet();
+    final updated = current.where((s) => !idSet.contains(s.id)).toList();
+    await _save(updated);
+    state = AsyncData(updated);
+  }
+
   Future<void> selectServer(ServerProfileModel server) async {
     final current = state.value ?? [];
     final updated = current.map((s) => s.copyWith(isSelected: s.id == server.id)).toList();

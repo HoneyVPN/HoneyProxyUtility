@@ -145,9 +145,7 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                 }
               }
               // Manual group or subscription not found — delete servers directly
-              for (final s in group) {
-                ref.read(serversNotifierProvider.notifier).delete(s.id);
-              }
+              ref.read(serversNotifierProvider.notifier).deleteAll(group.map((s) => s.id).toList());
             },
             child: const Text('Delete'),
           ),
