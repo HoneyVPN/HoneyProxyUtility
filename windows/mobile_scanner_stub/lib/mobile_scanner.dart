@@ -2,8 +2,6 @@ library mobile_scanner;
 
 import "package:flutter/widgets.dart";
 
-export "mobile_scanner.dart";
-
 class MobileScannerController {
   void dispose() {}
 }
