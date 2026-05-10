@@ -46,22 +46,19 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
     ref.onDispose(() => _autoTimer?.cancel());
     var subs = await _load();
 
-    // First-run: seed default HoneyVPN subscription
-    final prefs = await SharedPreferences.getInstance();
-    if (!(prefs.getBool(_firstRunKey) ?? false)) {
-      await prefs.setBool(_firstRunKey, true);
-      if (subs.isEmpty) {
-        final defaultSub = SubscriptionModel(
-          id: 1,
-          url: _defaultSubUrl,
-          name: 'HoneyVPN',
-          autoRefresh: true,
-          updateIntervalHours: 24,
-        );
-        subs = [defaultSub];
-        await _save(subs);
-        _doRefresh(defaultSub);
-      }
+    // Ensure built-in HoneyVPN subscription is always present
+    if (!subs.any((s) => s.url == _defaultSubUrl)) {
+      final nextId = subs.isEmpty ? 1 : (subs.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1);
+      final defaultSub = SubscriptionModel(
+        id: nextId,
+        url: _defaultSubUrl,
+        name: 'HoneyVPN',
+        autoRefresh: true,
+        updateIntervalHours: 24,
+      );
+      subs = [defaultSub, ...subs];
+      await _save(subs);
+      await _doRefresh(defaultSub);
     }
 
     _scheduleAutoRefresh();
