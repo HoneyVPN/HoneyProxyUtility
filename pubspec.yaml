@@ -57,6 +57,8 @@ dependencies:
   # Localization
   intl: ^0.20.2
 
+  country_flags: ^2.2.0
+
   # Logging
   logging: ^1.2.0
   sentry_flutter: ^9.19.0
