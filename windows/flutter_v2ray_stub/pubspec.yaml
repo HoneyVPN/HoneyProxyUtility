@@ -1,8 +1,8 @@
 name: flutter_v2ray
-description: No-op stub for Windows/desktop builds
-version: 1.0.10
+description: No-op stub for Windows builds
+version: 1.0.0
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ">=3.0.0 <4.0.0"
 dependencies:
   flutter:
     sdk: flutter

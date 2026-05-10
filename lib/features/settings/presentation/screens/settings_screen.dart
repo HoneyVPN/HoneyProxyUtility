@@ -313,7 +313,7 @@ class _SettingsTile extends StatelessWidget {
   Widget build(BuildContext context) => ListTile(
     leading: Icon(icon, color: NexPalette.accent, size: 20),
     title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
-    subtitle: Text(subtitle, style: const TextStyle(fontSize: 11)),
+    subtitle: subtitle.isNotEmpty ? Text(subtitle, style: const TextStyle(fontSize: 11)) : null,
     trailing: trailing ?? (onTap != null ? const Icon(Icons.chevron_right, size: 18) : null),
     onTap: onTap,
     dense: true,
