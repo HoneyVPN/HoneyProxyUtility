@@ -8,13 +8,12 @@ import '../../domain/entities/connection_state.dart';
 import '../../../converter/data/parsers/link_dispatcher.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../servers/data/models/server_profile_model.dart';
+import '../../../settings/presentation/notifiers/settings_notifier.dart';
 
 final connectionNotifierProvider =
     NotifierProvider<ConnectionNotifier, NexConnectionState>(
   ConnectionNotifier.new,
 );
-
-final appSettingsProvider = Provider((_) => const AppSettings());
 
 class ConnectionNotifier extends Notifier<NexConnectionState> {
   VpnDatasource? _datasource;
@@ -53,8 +52,11 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
         return;
       }
 
+      final settings = ref.read(settingsProvider).value;
+      final mode = settings?.connectionMode ?? ConnectionMode.tunnel;
+
       state = state.copyWith(status: ConnectionStatus.connecting);
-      await _datasource!.start(proxy);
+      await _datasource!.start(proxy, mode: mode);
       // Status will update to connected via _onV2RayStatus callback
     } catch (e) {
       state = state.copyWith(
