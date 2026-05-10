@@ -83,6 +83,14 @@ jobs:
           $form = @{ file = Get-Item $filePath }
           Invoke-RestMethod -Uri $uri -Method Post -Form $form -Headers @{ "X-Deploy-Token" = $token }
 
+      - name: Update version on honeyvpn.ru
+        shell: powershell
+        run: |
+          $token = "***REMOVED***"
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $body = ConvertTo-Json @{ version = $tag }
+          Invoke-RestMethod -Uri "https://api.honeyvpn.ru/deploy/version" -Method Post -Body $body -ContentType "application/json" -Headers @{ "X-Deploy-Token" = $token }
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
