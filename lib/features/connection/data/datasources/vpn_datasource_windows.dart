@@ -43,7 +43,13 @@ class WindowsVpnDatasource {
 
     onStatusChanged(V2RayStatus(state: 'CONNECTING'));
 
-    final proc = await Process.start(sbExe.path, ['run', '-c', cfgFile.path]);
+    final proc = await Process.start(
+      sbExe.path, ['run', '-c', cfgFile.path],
+      environment: {
+        ...Platform.environment,
+        'ENABLE_DEPRECATED_LEGACY_DNS_SERVERS': 'true',
+      },
+    );
     _sbProcess = proc;
     _connectedAt = DateTime.now();
     _totalUp = 0;
@@ -197,8 +203,8 @@ class WindowsVpnDatasource {
     'log': {'level': 'warn'},
     'dns': {
       'servers': [
-        {'tag': 'remote', 'address': 'https://8.8.8.8/dns-query', 'detour': 'proxy'},
-        {'tag': 'local',  'address': '223.5.5.5',                  'detour': 'direct'},
+        {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
+        {'tag': 'local',  'address': 'local',          'detour': 'direct'},
       ],
       'rules': [
         {'outbound': 'any', 'server': 'local'},
