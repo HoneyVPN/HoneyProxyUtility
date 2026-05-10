@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:io' show Platform;
+
+import 'package:dio/dio.dart';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../app/app_theme.dart';
@@ -532,10 +537,43 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
-class _UpdateBanner extends StatelessWidget {
+class _UpdateBanner extends StatefulWidget {
   final UpdateInfo info;
   final VoidCallback onDismiss;
   const _UpdateBanner({required this.info, required this.onDismiss});
+
+  @override
+  State<_UpdateBanner> createState() => _UpdateBannerState();
+}
+
+class _UpdateBannerState extends State<_UpdateBanner> {
+  double? _progress;
+
+  Future<void> _install() async {
+    if (!Platform.isAndroid) {
+      await launchUrl(Uri.parse(widget.info.downloadUrl), mode: LaunchMode.externalApplication);
+      return;
+    }
+    setState(() => _progress = 0);
+    try {
+      final dir = await getTemporaryDirectory();
+      final path = '${dir.path}/update.apk';
+      await Dio().download(
+        widget.info.downloadUrl,
+        path,
+        onReceiveProgress: (received, total) {
+          if (total > 0 && mounted) {
+            setState(() => _progress = received / total);
+          }
+        },
+      );
+      await OpenFile.open(path);
+    } catch (_) {
+      await launchUrl(Uri.parse(widget.info.downloadUrl), mode: LaunchMode.externalApplication);
+    } finally {
+      if (mounted) setState(() => _progress = null);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -546,42 +584,60 @@ class _UpdateBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: NexPalette.accent.withOpacity(0.30)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.system_update_outlined, color: NexPalette.accent, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Доступна версия ${info.remoteVersion}',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: NexPalette.accent),
+          Row(
+            children: [
+              const Icon(Icons.system_update_outlined, color: NexPalette.accent, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Доступна версия ${widget.info.remoteVersion}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: NexPalette.accent),
+                    ),
+                    Text(
+                      'Установлена ${widget.info.currentVersion}',
+                      style: TextStyle(fontSize: 11, color: NexPalette.accent.withOpacity(0.7)),
+                    ),
+                  ],
                 ),
-                Text(
-                  'Установлена ${info.currentVersion}',
-                  style: TextStyle(fontSize: 11, color: NexPalette.accent.withOpacity(0.7)),
+              ),
+              TextButton(
+                onPressed: _progress != null ? null : _install,
+                style: TextButton.styleFrom(
+                  foregroundColor: NexPalette.accent,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-              ],
+                child: Text(
+                  _progress != null ? '${(_progress! * 100).toInt()}%' : 'Обновить',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: widget.onDismiss,
+                child: Icon(Icons.close, size: 16, color: NexPalette.accent.withOpacity(0.6)),
+              ),
+            ],
+          ),
+          if (_progress != null) ...[
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: _progress,
+                backgroundColor: NexPalette.accent.withOpacity(0.15),
+                color: NexPalette.accent,
+                minHeight: 3,
+              ),
             ),
-          ),
-          TextButton(
-            onPressed: info.downloadUrl.isNotEmpty
-                ? () => launchUrl(Uri.parse(info.downloadUrl), mode: LaunchMode.externalApplication)
-                : null,
-            style: TextButton.styleFrom(
-              foregroundColor: NexPalette.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: const Text('Скачать', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(width: 4),
-          GestureDetector(
-            onTap: onDismiss,
-            child: Icon(Icons.close, size: 16, color: NexPalette.accent.withOpacity(0.6)),
-          ),
+          ],
         ],
       ),
     );
