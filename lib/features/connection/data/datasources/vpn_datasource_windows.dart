@@ -48,6 +48,7 @@ class WindowsVpnDatasource {
       environment: {
         ...Platform.environment,
         'ENABLE_DEPRECATED_LEGACY_DNS_SERVERS': 'true',
+        'ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM': 'true',
       },
     );
     _sbProcess = proc;
