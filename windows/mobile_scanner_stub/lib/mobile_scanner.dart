@@ -1,6 +1,5 @@
 library mobile_scanner;
-
-import "package:flutter/widgets.dart";
+import 'package:flutter/widgets.dart';
 
 class MobileScannerController {
   void dispose() {}
@@ -20,7 +19,6 @@ class MobileScanner extends StatelessWidget {
   final MobileScannerController controller;
   final void Function(BarcodeCapture)? onDetect;
   const MobileScanner({super.key, required this.controller, this.onDetect});
-
   @override
   Widget build(BuildContext context) => const SizedBox();
 }

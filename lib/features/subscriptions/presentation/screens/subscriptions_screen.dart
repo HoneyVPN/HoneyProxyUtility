@@ -12,10 +12,10 @@ import '../../../converter/data/parsers/subscription_parser.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../../app/app_theme.dart';
 
-const _subsKey = 'honeyvpn_subscriptions';
+const _subsKey = 'nexproxy_subscriptions';
 const _corsBase = '/proxy/?url=';
-const _firstRunKey = 'honey_first_run_done';
 const _defaultSubUrl = 'https://sub.honeyvpn.ru/ext/5BQLnwsNJ5nvF6dH';
+const _firstRunKey = 'honey_first_run_done';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
     ref.onDispose(() => _autoTimer?.cancel());
     var subs = await _load();
 
-    // Seed HoneyVPN subscription on very first launch
+    // First-run: seed default HoneyVPN subscription
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool(_firstRunKey) ?? false)) {
       await prefs.setBool(_firstRunKey, true);
@@ -67,16 +67,6 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
     _scheduleAutoRefresh();
     for (final s in subs) {
       if (s.needsRefresh) _doRefresh(s);
-    }
-
-    // If the default HoneyVPN sub exists but has no servers yet (e.g. first proxy
-    // fetch failed), silently re-fetch so users always see servers on load.
-    final defaultSub = subs.where((s) => s.url == _defaultSubUrl).firstOrNull;
-    if (defaultSub != null) {
-      final serverCount = ref.read(serversNotifierProvider).value
-          ?.where((sv) => sv.subscriptionId == _defaultSubUrl)
-          .length ?? 0;
-      if (serverCount == 0) _doRefresh(defaultSub);
     }
     return SubscriptionsState(subs: subs);
   }
@@ -114,6 +104,8 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
   // ── CRUD ─────────────────────────────────────────────────────────────────
 
   Future<void> add(String url, {String name = ''}) async {
+    url = url.replaceAll('\x00', '').trim();
+    if (url.isEmpty) return;
     final current = state.value?.subs ?? [];
     if (current.any((s) => s.url == url)) return;
     final model = SubscriptionModel(
@@ -189,6 +181,7 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
 
     try {
       final fetchUrl = kIsWeb ? '$_corsBase${Uri.encodeComponent(sub.url)}' : sub.url;
+      // fetchUrl for web: /proxy/?url=<encoded-url>
       final resp = await Dio().get<String>(
         fetchUrl,
         options: Options(

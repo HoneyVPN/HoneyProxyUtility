@@ -5,8 +5,6 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io';
-import '../widgets/qr_scan_dialog.dart';
 
 import '../../data/parsers/base_parser.dart';
 import '../../data/parsers/link_dispatcher.dart';
@@ -54,7 +52,7 @@ class _ConverterNotifier extends StateNotifier<_ConverterState> {
   }
 
   Future<void> parse() async {
-    final text = state.text.trim();
+    final text = state.text.replaceAll('\x00', '').trim();
     if (text.isEmpty) return;
 
     // If it's an HTTP(S) URL — fetch it first
@@ -237,25 +235,6 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
-                        OutlinedButton(
-                          onPressed: () async {
-                            final result = await showModalBottomSheet<String>(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (_) => const QrScanDialog(),
-                            );
-                            if (result != null && result.isNotEmpty) {
-                              notifier.setInitialText(result);
-                              _ctrl.text = result;
-                              notifier.parse();
-                            }
-                          },
-                          child: const Icon(Icons.qr_code_scanner, size: 20),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: s.importing ? null : notifier.parse,
@@ -326,14 +305,19 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
 
   void _importOne(BuildContext ctx, WidgetRef ref, ParsedProxy p) {
     ref.read(serversNotifierProvider.notifier).addFromProxy(p);
-    ScaffoldMessenger.of(ctx).showSnackBar(
+    final router = GoRouter.of(ctx);
+    final messenger = ScaffoldMessenger.of(ctx);
+    messenger.showSnackBar(
       SnackBar(
         content: Text('${p.displayName} added'),
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 4),
         action: SnackBarAction(
-          label: 'View',
-          onPressed: () => ctx.go('/'),
+          label: 'Servers',
+          onPressed: () {
+            messenger.hideCurrentSnackBar();
+            router.go('/servers');
+          },
         ),
       ),
     );
@@ -346,14 +330,19 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
     if (subId.isNotEmpty) {
       ref.read(subscriptionsProvider.notifier).register(subId, serverCount: proxies.length);
     }
-    ScaffoldMessenger.of(ctx).showSnackBar(
+    final router = GoRouter.of(ctx);
+    final messenger = ScaffoldMessenger.of(ctx);
+    messenger.showSnackBar(
       SnackBar(
         content: Text('${proxies.length} servers added'),
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 4),
         action: SnackBarAction(
-          label: 'View',
-          onPressed: () => ctx.go('/'),
+          label: 'Servers',
+          onPressed: () {
+            messenger.hideCurrentSnackBar();
+            router.go('/servers');
+          },
         ),
       ),
     );

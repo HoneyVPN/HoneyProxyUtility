@@ -129,7 +129,7 @@ extension ConnectionModeExt on ConnectionMode {
 
   String get description => switch (this) {
     ConnectionMode.tunnel => 'TUN interface — all apps, no config needed',
-    ConnectionMode.proxy  => 'SOCKS5 :2080 / HTTP :2081 — manual per-app',
+    ConnectionMode.proxy  => '',
   };
 
   IconData get icon => switch (this) {
