@@ -74,6 +74,15 @@ jobs:
           path: build\windows\installer\HoneyProxyUtility-Setup.exe
           retention-days: 30
 
+      - name: Deploy EXE to honeyvpn.ru
+        shell: powershell
+        run: |
+          $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
+          $filePath = "build\windows\installer\HoneyProxyUtility-Setup.exe"
+          $uri = "https://api.honeyvpn.ru/deploy/windows"
+          $form = @{ file = Get-Item $filePath }
+          Invoke-RestMethod -Uri $uri -Method Post -Form $form -Headers @{ "X-Deploy-Token" = $token }
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
