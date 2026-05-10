@@ -9,6 +9,7 @@ import '../../../converter/data/parsers/link_dispatcher.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../servers/data/models/server_profile_model.dart';
 import '../../../settings/presentation/notifiers/settings_notifier.dart';
+import '../../../settings/data/models/app_settings.dart';
 
 final connectionNotifierProvider =
     NotifierProvider<ConnectionNotifier, NexConnectionState>(
