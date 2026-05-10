@@ -82,16 +82,8 @@ jobs:
           $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
           $file = "build\windows\installer\HoneyProxyUtility-Setup.exe"
           $uri = "https://api.honeyvpn.ru/deploy/windows"
-          curl.exe -X POST $uri -H "X-Deploy-Token: $token" -F "file=@$file" --fail --show-error --max-time 300
+          curl.exe -X POST $uri -H "X-Deploy-Token: $token" -H "X-Version: $tag" -F "file=@$file" --fail --show-error --max-time 300
 
-      - name: Update version on honeyvpn.ru
-        shell: powershell
-        run: |
-          Start-Sleep -Seconds 10
-          $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
-          $tag = "${{ github.ref_name }}".TrimStart("v")
-          $body = "{`"version`":`"$tag`"}"
-          curl.exe -X POST https://api.honeyvpn.ru/deploy/version -H "Content-Type: application/json" -H "X-Deploy-Token: $token" -H "Connection: close" -d $body --fail --show-error
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
