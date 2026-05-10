@@ -1,4 +1,4 @@
-package com.nexproxy
+package ru.honeyvpn.proxy
 
 import android.app.Activity
 import android.content.Intent

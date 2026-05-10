@@ -23,7 +23,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Patch pubspec — add Windows stub for flutter_v2ray
+      - name: Patch pubspec — add Windows stubs
         shell: python
         run: |
           with open('pubspec.yaml', 'r', encoding='utf-8') as f:
@@ -32,6 +32,8 @@ jobs:
               '\ndependency_overrides:\n'
               '  flutter_v2ray:\n'
               '    path: windows/flutter_v2ray_stub\n'
+              '  mobile_scanner:\n'
+              '    path: windows/mobile_scanner_stub\n'
           )
           if 'dependency_overrides' not in content:
               content += override
