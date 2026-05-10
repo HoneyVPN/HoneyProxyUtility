@@ -44,7 +44,6 @@ class SingboxConfigGenerator {
         _outbound(proxy),
         _direct(),
         _block(),
-        _dns_out(),
       ],
       'route': _route(settings),
     };
@@ -335,11 +334,10 @@ class SingboxConfigGenerator {
 
   Map<String, dynamic> _direct() => {'type': 'direct', 'tag': 'direct'};
   Map<String, dynamic> _block() => {'type': 'block', 'tag': 'block'};
-  Map<String, dynamic> _dns_out() => {'type': 'dns', 'tag': 'dns-out'};
 
   Map<String, dynamic> _route(AppSettings s) {
     final rules = <Map<String, dynamic>>[
-      {'protocol': 'dns', 'outbound': 'dns-out'},
+      {'protocol': 'dns', 'action': 'hijack-dns'},
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
 
