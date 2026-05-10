@@ -5,6 +5,7 @@ import 'package:flutter_v2ray/flutter_v2ray.dart';
 
 import '../singbox/xray_config_generator.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
+import '../../../settings/data/models/app_settings.dart';
 import 'vpn_datasource_windows.dart';
 import 'android_singbox_helper.dart';
 
@@ -106,7 +107,7 @@ class VpnDatasource {
     return _windows!.requestPermission();
   }
 
-  Future<void> start(ParsedProxy proxy) async {
+  Future<void> start(ParsedProxy proxy, {ConnectionMode mode = ConnectionMode.tunnel}) async {
     if (_isMobile) {
       if (_xraySupports(proxy)) {
         final config = const XrayConfigGenerator().generate(proxy);
@@ -129,7 +130,7 @@ class VpnDatasource {
         );
       }
     } else {
-      await _windows!.start(proxy);
+      await _windows!.start(proxy, mode: mode);
     }
   }
 
@@ -177,14 +178,3 @@ class VpnDatasource {
 }
 
 typedef SingboxDatasource = VpnDatasource;
-
-class AppSettings {
-  final bool bypassRU;
-  final bool enableFakeIP;
-  final String routingMode;
-  const AppSettings({
-    this.bypassRU = false,
-    this.enableFakeIP = true,
-    this.routingMode = 'global',
-  });
-}

@@ -6,6 +6,7 @@ import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../converter/domain/entities/parsed_proxy.dart';
+import '../../../settings/data/models/app_settings.dart';
 
 class WindowsVpnDatasource {
   final void Function(V2RayStatus) onStatusChanged;
@@ -14,6 +15,7 @@ class WindowsVpnDatasource {
   DateTime? _connectedAt;
   int _totalUp   = 0;
   int _totalDown = 0;
+  bool _tunMode  = false;
 
   static const _socksPort  = 10808;
   static const _httpPort   = 10809;
@@ -24,10 +26,11 @@ class WindowsVpnDatasource {
   Future<void> initialize() async {}
   Future<bool> requestPermission() async => true;
 
-  Future<void> start(ParsedProxy proxy) async {
+  Future<void> start(ParsedProxy proxy, {ConnectionMode mode = ConnectionMode.tunnel}) async {
     await stop();
+    _tunMode = mode == ConnectionMode.tunnel;
 
-    final config  = _buildSingboxConfig(proxy);
+    final config  = _tunMode ? _buildTunConfig(proxy) : _buildProxyConfig(proxy);
     final tmp     = await getTemporaryDirectory();
     final cfgFile = File('${tmp.path}/honeyvpn_sb.json');
     await cfgFile.writeAsString(jsonEncode(config));
@@ -45,10 +48,12 @@ class WindowsVpnDatasource {
     _totalUp     = 0;
     _totalDown   = 0;
 
-    // Give sing-box time to start and open the API
-    await Future.delayed(const Duration(milliseconds: 1200));
+    // Give sing-box time to start and open the API / TUN interface
+    await Future.delayed(const Duration(milliseconds: 1500));
 
-    await _setSystemProxy('127.0.0.1', _httpPort);
+    if (!_tunMode) {
+      await _setSystemProxy('127.0.0.1', _httpPort);
+    }
 
     onStatusChanged(V2RayStatus(state: 'CONNECTED'));
 
@@ -158,20 +163,59 @@ class WindowsVpnDatasource {
     await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '0', '/f']);
   }
 
-  // ── sing-box config ───────────────────────────────────────────────────────
+  // ── sing-box configs ──────────────────────────────────────────────────────
 
-  Map<String, dynamic> _buildSingboxConfig(ParsedProxy proxy) => {
+  Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy) => {
     'log': {'level': 'warn'},
     'experimental': {
-      'clash_api': {
-        'external_controller': '127.0.0.1:$_clashPort',
-      },
+      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
     },
     'inbounds': [
       {'type': 'socks', 'tag': 'socks-in', 'listen': '127.0.0.1', 'listen_port': _socksPort},
       {'type': 'http',  'tag': 'http-in',  'listen': '127.0.0.1', 'listen_port': _httpPort},
     ],
-    'outbounds': [_buildOutbound(proxy)],
+    'outbounds': [_buildOutbound(proxy), {'type': 'direct', 'tag': 'direct'}],
+  };
+
+  Map<String, dynamic> _buildTunConfig(ParsedProxy proxy) => {
+    'log': {'level': 'warn'},
+    'dns': {
+      'servers': [
+        {'tag': 'remote', 'address': 'https://8.8.8.8/dns-query', 'detour': 'proxy'},
+        {'tag': 'local',  'address': '223.5.5.5',                  'detour': 'direct'},
+      ],
+      'rules': [
+        {'outbound': 'any', 'server': 'local'},
+      ],
+      'final': 'remote',
+    },
+    'experimental': {
+      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+    },
+    'inbounds': [
+      {
+        'type': 'tun',
+        'tag': 'tun-in',
+        'address': ['172.19.0.1/30'],
+        'auto_route': true,
+        'strict_route': false,
+        'stack': 'mixed',
+        'sniff': true,
+      },
+    ],
+    'outbounds': [
+      _buildOutbound(proxy),
+      {'type': 'direct', 'tag': 'direct'},
+      {'type': 'dns',    'tag': 'dns-out'},
+    ],
+    'route': {
+      'rules': [
+        {'protocol': 'dns',        'outbound': 'dns-out'},
+        {'ip_is_private': true,    'outbound': 'direct'},
+      ],
+      'final': 'proxy',
+      'auto_detect_interface': true,
+    },
   };
 
   Map<String, dynamic> _buildOutbound(ParsedProxy proxy) => switch (proxy) {

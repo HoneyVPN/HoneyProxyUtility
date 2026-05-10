@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -40,12 +43,13 @@ class SettingsScreen extends ConsumerWidget {
           const Divider(height: 8),
           _SectionHeader(s.connectionSection),
 
-          _SettingsTile(
-            icon: settings.connectionMode.icon,
-            title: s.modeTitle,
-            subtitle: settings.connectionMode.description,
-            trailing: _ModeToggle(current: settings.connectionMode, onChanged: notifier.setConnectionMode, s: s),
-          ),
+          if (kIsWeb || !Platform.isAndroid)
+            _SettingsTile(
+              icon: settings.connectionMode.icon,
+              title: s.modeTitle,
+              subtitle: settings.connectionMode.description,
+              trailing: _ModeToggle(current: settings.connectionMode, onChanged: notifier.setConnectionMode, s: s),
+            ),
 
           _SettingsTile(
             icon: Icons.route_outlined,
