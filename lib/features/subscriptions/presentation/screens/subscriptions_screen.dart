@@ -15,7 +15,6 @@ import '../../../../app/app_theme.dart';
 const _subsKey = 'nexproxy_subscriptions';
 const _corsBase = '/proxy/?url=';
 const _defaultSubUrl = 'https://sub.honeyvpn.ru/ext/5BQLnwsNJ5nvF6dH';
-const _firstRunKey = 'honey_first_run_done';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -232,7 +231,7 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
     } catch (_) {
       final newRefreshing = {...(state.value?.refreshing ?? {})}..remove(sub.id);
       state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(refreshing: newRefreshing));
-      rethrow;
+      // Silently swallow: caller is often build() and cannot handle exceptions
     }
   }
 }

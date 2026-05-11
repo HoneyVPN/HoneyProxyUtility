@@ -1,18 +1,16 @@
+import 'dart:convert';
+
 import 'base_parser.dart';
 import '../../domain/entities/parsed_proxy.dart';
 
 /// Parses wg-quick compatible config blocks embedded as a URI-like string
 /// or as a raw INI-style text block.
 ///
-/// Format (INI block):
-/// [Interface]
-/// PrivateKey = ...
-/// Address = 10.0.0.2/32
-/// DNS = 1.1.1.1
-/// [Peer]
-/// PublicKey = ...
-/// Endpoint = host:port
-/// AllowedIPs = 0.0.0.0/0
+/// Supported formats:
+/// 1. INI block: [Interface] / [Peer] wg-quick format
+/// 2. Standard URI: wireguard://host:port?privateKey=...&publicKey=...
+/// 3. Internal config JSON: wireguard://host:port?config={JSON}#name
+///    (produced by servers_notifier._rawLink for WireGuard configs)
 class WireGuardParser extends BaseProxyParser<WireGuardConfig> {
   const WireGuardParser();
 
@@ -38,15 +36,45 @@ class WireGuardParser extends BaseProxyParser<WireGuardConfig> {
 
     final p = uri.queryParameters;
     final host = uri.host;
+    final name = BaseProxyParser.decodeUri(uri.fragment);
+    final port = uri.port == 0 ? 51820 : uri.port;
+
+    // Internal _rawLink format: wireguard://host:port?config={JSON}#name
+    final configParam = p['config'];
+    if (configParam != null) {
+      try {
+        final config = json.decode(configParam) as Map<String, dynamic>;
+        return WireGuardConfig(
+          name: name,
+          host: host,
+          port: port,
+          privateKey: config['privateKey'] as String? ?? '',
+          publicKey: config['publicKey'] as String? ?? '',
+          presharedKey: config['presharedKey'] as String? ?? '',
+          addresses: ((config['addresses'] as List<dynamic>?) ?? [])
+              .map((e) => e.toString())
+              .toList(),
+          dns: ((config['dns'] as List<dynamic>?) ?? [])
+              .map((e) => e.toString())
+              .toList(),
+          mtu: config['mtu'] as int? ?? 1420,
+          reserved: _parseReservedFromJson(config['reserved']),
+        );
+      } catch (_) {
+        // Fall through to standard URI parsing
+      }
+    }
+
+    // Standard URI format
     final privateKey = p['privateKey'] ?? p['private_key'] ?? '';
     final publicKey = p['publicKey'] ?? p['public_key'] ?? uri.userInfo;
     final addresses = (p['address'] ?? '').split(',').where((s) => s.isNotEmpty).toList();
     final dns = (p['dns'] ?? '').split(',').where((s) => s.isNotEmpty).toList();
 
     return WireGuardConfig(
-      name: BaseProxyParser.decodeUri(uri.fragment),
+      name: name,
       host: host,
-      port: uri.port == 0 ? 51820 : uri.port,
+      port: port,
       privateKey: privateKey,
       publicKey: publicKey,
       presharedKey: p['presharedKey'] ?? p['preshared_key'] ?? '',
@@ -92,6 +120,19 @@ class WireGuardParser extends BaseProxyParser<WireGuardConfig> {
     );
   }
 
+  // Parses reserved from a JSON value that may be List<dynamic> or null
+  static List<int>? _parseReservedFromJson(dynamic value) {
+    if (value == null) return null;
+    if (value is List) {
+      final result = value
+          .map((e) => e is int ? e : int.tryParse(e.toString()) ?? 0)
+          .toList();
+      return result.length == 3 ? result : null;
+    }
+    return null;
+  }
+
+  // Parses reserved from a comma-separated string query parameter
   static List<int>? _parseReserved(String? s) {
     if (s == null || s.isEmpty) return null;
     final parts = s.split(',');

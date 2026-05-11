@@ -119,15 +119,21 @@ class VpnDatasource {
       } else {
         // Chain proxy: sing-box handles the protocol, xray handles TUN routing
         _androidSb ??= AndroidSingboxHelper();
-        await _androidSb!.start(_buildAndroidChainConfig(proxy));
-        await Future.delayed(const Duration(milliseconds: 800));
-        final passthroughConfig = const XrayConfigGenerator()
-            .generateSocksPassthrough(AndroidSingboxHelper.chainProxyPort);
-        await _v2ray!.startV2Ray(
-          remark: proxy.displayName,
-          config: passthroughConfig,
-          notificationDisconnectButtonName: 'Disconnect',
-        );
+        try {
+          await _androidSb!.start(_buildAndroidChainConfig(proxy));
+          await Future.delayed(const Duration(milliseconds: 800));
+          final passthroughConfig = const XrayConfigGenerator()
+              .generateSocksPassthrough(AndroidSingboxHelper.chainProxyPort);
+          await _v2ray!.startV2Ray(
+            remark: proxy.displayName,
+            config: passthroughConfig,
+            notificationDisconnectButtonName: 'Disconnect',
+          );
+        } catch (e) {
+          await _androidSb?.stop();
+          _androidSb = null;
+          rethrow;
+        }
       }
     } else {
       await _windows!.start(proxy, mode: mode);

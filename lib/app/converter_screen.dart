@@ -113,13 +113,39 @@ class _ConverterNotifier extends StateNotifier<_ConverterState> {
   }
 }
 
-class ConverterScreen extends ConsumerWidget {
+class ConverterScreen extends ConsumerStatefulWidget {
   const ConverterScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConverterScreen> createState() => _ConverterScreenState();
+}
+
+class _ConverterScreenState extends ConsumerState<ConverterScreen> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final s = ref.watch(_converterStateProvider);
     final notifier = ref.read(_converterStateProvider.notifier);
+
+    if (_ctrl.text != s.text) {
+      _ctrl.value = TextEditingValue(
+        text: s.text,
+        selection: TextSelection.collapsed(offset: s.text.length),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Import')),
@@ -139,8 +165,7 @@ class ConverterScreen extends ConsumerWidget {
                     maxLines: 5,
                     minLines: 3,
                     onChanged: notifier.updateText,
-                    controller: TextEditingController(text: s.text)
-                      ..selection = TextSelection.collapsed(offset: s.text.length),
+                    controller: _ctrl,
                     decoration: const InputDecoration(
                       hintText: 'vmess:// or vless:// or ss:// or subscription URL...',
                     ),

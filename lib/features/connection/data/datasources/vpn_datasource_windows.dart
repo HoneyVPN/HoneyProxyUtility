@@ -88,16 +88,20 @@ class WindowsVpnDatasource {
       ..connectionTimeout = const Duration(seconds: 5);
 
     Future(() async {
+      StreamSubscription<String>? sub;
       try {
         final req  = await client.getUrl(
             Uri.parse('http://127.0.0.1:$_clashPort/traffic'));
         final resp = await req.close();
 
-        _statsSub = resp
+        sub = resp
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .listen((line) {
           if (line.trim().isEmpty) return;
+          // Guard against race: stop() may have been called before first data arrives
+          final connectedAt = _connectedAt;
+          if (connectedAt == null) return;
           try {
             final data = json.decode(line) as Map<String, dynamic>;
             final up   = (data['up']   as num? ?? 0).toInt();
@@ -105,7 +109,7 @@ class WindowsVpnDatasource {
             _totalUp   += up;
             _totalDown += down;
 
-            final elapsed = DateTime.now().difference(_connectedAt!);
+            final elapsed = DateTime.now().difference(connectedAt);
             final h = elapsed.inHours.toString().padLeft(2, '0');
             final m = (elapsed.inMinutes  % 60).toString().padLeft(2, '0');
             final s = (elapsed.inSeconds  % 60).toString().padLeft(2, '0');
@@ -120,8 +124,11 @@ class WindowsVpnDatasource {
             ));
           } catch (_) {}
         }, onError: (_) {});
+
+        // Assign after creation so stop() can cancel even if called concurrently
+        _statsSub = sub;
       } catch (_) {
-        // Clash API not available — fall back to a simple timer
+        sub?.cancel();
         _startFallbackTimer();
       } finally {
         client.close();
@@ -129,12 +136,12 @@ class WindowsVpnDatasource {
     });
   }
 
-  // Fallback: update only the session clock if Clash API is unreachable
   Timer? _fallbackTimer;
   void _startFallbackTimer() {
     _fallbackTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_connectedAt == null) return;
-      final elapsed = DateTime.now().difference(_connectedAt!);
+      final connectedAt = _connectedAt;
+      if (connectedAt == null) return;
+      final elapsed = DateTime.now().difference(connectedAt);
       final h = elapsed.inHours.toString().padLeft(2, '0');
       final m = (elapsed.inMinutes  % 60).toString().padLeft(2, '0');
       final s = (elapsed.inSeconds  % 60).toString().padLeft(2, '0');
@@ -169,9 +176,20 @@ class WindowsVpnDatasource {
     }
   }
 
-  void dispose() => stop();
-
-  // ── System proxy ──────────────────────────────────────────────────────────
+  /// Dispose is synchronous (Riverpod onDispose constraint).
+  /// Kill process and cancel subscriptions synchronously,
+  /// then fire-and-forget the async registry cleanup so the
+  /// system proxy is always reset even if the app crashes.
+  void dispose() {
+    _statsSub?.cancel();
+    _statsSub = null;
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
+    _connectedAt = null;
+    _sbProcess?.kill();
+    _sbProcess = null;
+    _clearSystemProxy().catchError((_) {});
+  }
 
   Future<void> _setSystemProxy(String host, int port) async {
     const k =
@@ -185,8 +203,6 @@ class WindowsVpnDatasource {
         r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
     await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '0', '/f']);
   }
-
-  // ── sing-box configs ──────────────────────────────────────────────────────
 
   Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy) => {
     'log': {'level': 'warn'},

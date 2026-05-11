@@ -1,0 +1,90 @@
+name: Build Android
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  KEYSTORE_B64: ***REMOVED***
+  KEY_ALIAS: upload
+  KEY_PASSWORD: ***REMOVED***
+  STORE_PASSWORD: ***REMOVED***
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Decode keystore
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > android/upload-keystore.jks
+          cat > android/key.properties << 'EOF'
+          storePassword=${{ env.STORE_PASSWORD }}
+          keyPassword=${{ env.KEY_PASSWORD }}
+          keyAlias=${{ env.KEY_ALIAS }}
+          storeFile=../upload-keystore.jks
+          EOF
+
+      - name: Build APK (release)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Rename APKs
+        run: |
+          TAG=${{ github.ref_name }}
+          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+            base=$(basename "$f" .apk)
+            mv "$f" "build/app/outputs/flutter-apk/HoneyProxyUtility-${TAG}-${base#app-}.apk"
+          done
+
+      - name: Deploy APK to honeyvpn.ru
+        run: |
+          TAG=${{ github.ref_name }}
+          for f in build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk; do
+            curl -X POST https://api.honeyvpn.ru/deploy/android \
+              -H "X-Deploy-Token: ***REMOVED***" \
+              -H "X-Version: $TAG" \
+              -F "file=@$f" \
+              --fail --show-error --max-time 300 || true
+          done
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk
+          name: HoneyProxyUtility ${{ github.ref_name }}
+          body: |
+            ## HoneyProxyUtility ${{ github.ref_name }} — Android
+
+            ### Скачать APK
+            - **arm64-v8a** (большинство современных телефонов)
+            - **armeabi-v7a** (старые телефоны)
+            - **x86_64** (эмуляторы)
+
+            ### Установка
+            1. Скачай APK под свой процессор
+            2. Разреши установку из неизвестных источников
+            3. Установи и добавь подписку через @honeyvpnru_bot
