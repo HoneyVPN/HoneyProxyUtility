@@ -49,6 +49,7 @@ class WindowsVpnDatasource {
         ...Platform.environment,
         'ENABLE_DEPRECATED_LEGACY_DNS_SERVERS': 'true',
         'ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM': 'true',
+        'ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER': 'true',
       },
     );
     _sbProcess = proc;
@@ -226,6 +227,7 @@ class WindowsVpnDatasource {
       'rules': [
         {'outbound': 'any', 'server': 'local'},
       ],
+      'domain_resolver': 'local',
       'final': 'remote',
     },
     'experimental': {
