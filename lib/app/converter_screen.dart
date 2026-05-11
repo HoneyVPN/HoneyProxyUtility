@@ -254,6 +254,7 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
     ScaffoldMessenger.of(ctx).showSnackBar(
       SnackBar(
         content: Text('${p.displayName} added'),
+        duration: const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
         action: SnackBarAction(label: 'Servers', onPressed: () => ctx.go('/servers')),
       ),
@@ -265,6 +266,7 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
     ScaffoldMessenger.of(ctx).showSnackBar(
       SnackBar(
         content: Text('${proxies.length} servers added'),
+        duration: const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
         action: SnackBarAction(label: 'Servers', onPressed: () => ctx.go('/servers')),
       ),

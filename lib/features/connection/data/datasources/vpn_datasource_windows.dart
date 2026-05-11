@@ -353,10 +353,9 @@ class WindowsVpnDatasource {
         },
         'grpc' => {'type': 'grpc', 'service_name': grpcService},
         'xhttp' => {
-          'type': 'xhttp',
+          'type': 'splithttp',
           'path': path.isEmpty ? '/' : path,
           if (host.isNotEmpty) 'host': host,
-          if (mode.isNotEmpty) 'mode': mode,
         },
         'httpupgrade' => {
           'type': 'httpupgrade',
