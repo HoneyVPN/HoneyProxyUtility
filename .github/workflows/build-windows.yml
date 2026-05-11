@@ -61,6 +61,8 @@ jobs:
           Expand-Archive -Path "singbox.zip" -DestinationPath "build\windows\singbox" -Force
           $exe = Get-ChildItem -Recurse "build\windows\singbox" -Filter "sing-box.exe" | Select-Object -First 1
           Copy-Item $exe.FullName "build\windows\x64\runner\Release\sing-box.exe"
+          $dll = Get-ChildItem -Recurse "build\windows\singbox" -Filter "wintun.dll" | Select-Object -First 1
+          if ($dll) { Copy-Item $dll.FullName "build\windows\x64\runner\Release\wintun.dll" }
 
       - name: Create installer output directory
         shell: powershell
