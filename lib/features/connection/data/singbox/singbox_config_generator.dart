@@ -82,22 +82,18 @@ class SingboxConfigGenerator {
       'auto_route': true,
       'strict_route': true,
       'stack': s.tunStack.name,
-      'sniff': true,
-      'sniff_override_destination': false,
     },
     {
       'type': 'socks',
       'tag': 'socks-in',
       'listen': '127.0.0.1',
       'listen_port': s.socksPort,
-      'sniff': true,
     },
     {
       'type': 'http',
       'tag': 'http-in',
       'listen': '127.0.0.1',
       'listen_port': s.httpPort,
-      'sniff': true,
     },
   ];
 
@@ -300,6 +296,7 @@ class SingboxConfigGenerator {
 
   Map<String, dynamic> _route(AppSettings s) {
     final rules = <Map<String, dynamic>>[
+      {'action': 'sniff'},
       {'protocol': 'dns', 'action': 'hijack-dns'},
       {'ip_is_private': true, 'outbound': 'direct'},
     ];

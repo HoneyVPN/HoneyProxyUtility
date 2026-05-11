@@ -239,7 +239,6 @@ class WindowsVpnDatasource {
         'auto_route': true,
         'strict_route': false,
         'stack': 'mixed',
-        'sniff': true,
       },
     ],
     'outbounds': [
@@ -249,6 +248,7 @@ class WindowsVpnDatasource {
     ],
     'route': {
       'rules': [
+        {'action': 'sniff'},
         {'protocol': 'dns', 'action': 'hijack-dns'},
         {'ip_is_private': true,    'outbound': 'direct'},
       ],
