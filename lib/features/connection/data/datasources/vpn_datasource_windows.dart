@@ -227,7 +227,6 @@ class WindowsVpnDatasource {
       'rules': [
         {'outbound': 'any', 'server': 'local'},
       ],
-      'domain_resolver': 'local',
       'final': 'remote',
     },
     'experimental': {
