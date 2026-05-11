@@ -41,7 +41,7 @@ class VmessParser extends BaseProxyParser<VmessConfig> {
       port: _parseInt(m['port']),
       uuid: (m['id'] as String?) ?? '',
       alterId: _parseInt(m['aid']),
-      security: (m['scy'] as String?) ?? (m['type'] as String?) ?? 'auto',
+      security: (m['scy'] as String?) ?? 'auto',
       network: (m['net'] as String?) ?? 'tcp',
       path: (m['path'] as String?) ?? '/',
       wsHost: (m['host'] as String?) ?? '',

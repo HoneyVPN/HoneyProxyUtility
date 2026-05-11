@@ -1,50 +1,30 @@
 import 'dart:convert';
 
 import '../../../converter/domain/entities/parsed_proxy.dart';
-
-enum RoutingMode { global, bypassRU, rules }
-enum TunStack { system, gvisor, mixed }
-enum DnsPreset { cloudflare, google, custom }
-enum LogLevel { trace, debug, info, warn, error }
-
-class AppSettings {
-  final RoutingMode routingMode;
-  final TunStack tunStack;
-  final DnsPreset dnsPreset;
-  final String customDns;
-  final bool blockAds;
-  final bool enableFakeip;
-  final LogLevel logLevel;
-  final int socksPort;
-  final int httpPort;
-
-  const AppSettings({
-    this.routingMode = RoutingMode.bypassRU,
-    this.tunStack = TunStack.mixed,
-    this.dnsPreset = DnsPreset.cloudflare,
-    this.customDns = '',
-    this.blockAds = true,
-    this.enableFakeip = true,
-    this.logLevel = LogLevel.warn,
-    this.socksPort = 2080,
-    this.httpPort = 2081,
-  });
-}
+import '../../../settings/data/models/app_settings.dart';
 
 class SingboxConfigGenerator {
   const SingboxConfigGenerator();
 
-  /// Generate a full sing-box JSON config for the given proxy and settings.
   String generate(ParsedProxy proxy, AppSettings settings) {
+    final outbounds = <Map<String, dynamic>>[
+      _outbound(proxy),
+    ];
+
+    // ShadowTLS requires the inner proxy as a separate named outbound
+    if (proxy is ShadowTlsConfig) {
+      final inner = _outbound(proxy.innerProxy);
+      inner['tag'] = 'shadowtls-inner';
+      outbounds.add(inner);
+    }
+
+    outbounds.addAll([_direct(), _block(), _dns_out()]);
+
     final config = {
       'log': _log(settings),
       'dns': _dns(settings),
       'inbounds': _inbounds(settings),
-      'outbounds': [
-        _outbound(proxy),
-        _direct(),
-        _block(),
-      ],
+      'outbounds': outbounds,
       'route': _route(settings),
     };
     return jsonEncode(config);
@@ -59,7 +39,8 @@ class SingboxConfigGenerator {
     final remoteDns = switch (s.dnsPreset) {
       DnsPreset.cloudflare => 'tls://1.1.1.1',
       DnsPreset.google => 'tls://8.8.8.8',
-      DnsPreset.custom => s.customDns.isNotEmpty ? s.customDns : 'tls://1.1.1.1',
+      DnsPreset.adguard => 'tls://94.140.14.14',
+      DnsPreset.custom => s.customDnsUrl.isNotEmpty ? s.customDnsUrl : 'tls://1.1.1.1',
     };
 
     final rules = <Map<String, dynamic>>[
@@ -73,10 +54,7 @@ class SingboxConfigGenerator {
       'servers': [
         {'tag': 'remote-dns', 'address': remoteDns, 'detour': 'proxy'},
         {'tag': 'local-dns', 'address': 'https://223.5.5.5/dns-query', 'detour': 'direct'},
-        if (s.enableFakeip) {
-          'tag': 'fakeip-dns',
-          'address': 'fakeip',
-        },
+        if (s.enableFakeip) {'tag': 'fakeip-dns', 'address': 'fakeip'},
         {'tag': 'block-dns', 'address': 'rcode://success'},
       ],
       if (s.enableFakeip)
@@ -135,7 +113,6 @@ class SingboxConfigGenerator {
     ShadowTlsConfig c => _shadowtls(c),
   };
 
-  // --- VLESS ---
   Map<String, dynamic> _vless(VlessConfig c) => {
     'type': 'vless',
     'tag': 'proxy',
@@ -148,7 +125,6 @@ class SingboxConfigGenerator {
     'packet_encoding': 'xudp',
   };
 
-  // --- VMess ---
   Map<String, dynamic> _vmess(VmessConfig c) => {
     'type': 'vmess',
     'tag': 'proxy',
@@ -162,7 +138,6 @@ class SingboxConfigGenerator {
     'packet_encoding': 'xudp',
   };
 
-  // --- Trojan ---
   Map<String, dynamic> _trojan(TrojanConfig c) => {
     'type': 'trojan',
     'tag': 'proxy',
@@ -173,7 +148,6 @@ class SingboxConfigGenerator {
     if (c.transport != 'tcp') 'transport': _transport(c.transport, c.path, c.transportHost, ''),
   };
 
-  // --- Shadowsocks ---
   Map<String, dynamic> _shadowsocks(ShadowsocksConfig c) => {
     'type': 'shadowsocks',
     'tag': 'proxy',
@@ -186,7 +160,6 @@ class SingboxConfigGenerator {
     'udp_over_tcp': false,
   };
 
-  // --- Hysteria2 ---
   Map<String, dynamic> _hysteria2(Hysteria2Config c) => {
     'type': 'hysteria2',
     'tag': 'proxy',
@@ -205,7 +178,6 @@ class SingboxConfigGenerator {
     },
   };
 
-  // --- TUIC ---
   Map<String, dynamic> _tuic(TuicConfig c) => {
     'type': 'tuic',
     'tag': 'proxy',
@@ -223,7 +195,6 @@ class SingboxConfigGenerator {
     },
   };
 
-  // --- WireGuard ---
   Map<String, dynamic> _wireguard(WireGuardConfig c) => {
     'type': 'wireguard',
     'tag': 'proxy',
@@ -237,7 +208,6 @@ class SingboxConfigGenerator {
     'mtu': c.mtu,
   };
 
-  // --- NaïveProxy ---
   Map<String, dynamic> _naive(NaiveConfig c) => {
     'type': 'http',
     'tag': 'proxy',
@@ -245,30 +215,24 @@ class SingboxConfigGenerator {
     'server_port': c.port,
     'username': c.username,
     'password': c.password,
-    'tls': {
-      'enabled': true,
-    },
+    'tls': {'enabled': true},
   };
 
-  // --- ShadowTLS ---
-  Map<String, dynamic> _shadowtls(ShadowTlsConfig c) {
-    final inner = _outbound(c.innerProxy)..['tag'] = 'shadowtls-inner';
-    return {
-      'type': 'shadowtls',
-      'tag': 'proxy',
-      'server': c.host,
-      'server_port': c.port,
-      'version': c.version,
-      'password': c.password,
-      'tls': {
-        'enabled': true,
-        if (c.sni.isNotEmpty) 'server_name': c.sni,
-      },
-      'detour': 'shadowtls-inner',
-    };
-  }
+  // ShadowTLS outer outbound; the inner outbound is added separately in generate()
+  Map<String, dynamic> _shadowtls(ShadowTlsConfig c) => {
+    'type': 'shadowtls',
+    'tag': 'proxy',
+    'server': c.host,
+    'server_port': c.port,
+    'version': c.version,
+    'password': c.password,
+    'tls': {
+      'enabled': true,
+      if (c.sni.isNotEmpty) 'server_name': c.sni,
+    },
+    'detour': 'shadowtls-inner',
+  };
 
-  // --- TLS block helper ---
   Map<String, dynamic> _tlsBlock(
     String security,
     String sni,
@@ -294,7 +258,6 @@ class SingboxConfigGenerator {
     return {'tls': tls};
   }
 
-  // --- Transport block helper ---
   Map<String, dynamic> _transport(String type, String path, String host, String serviceName) {
     switch (type) {
       case 'ws':
@@ -381,7 +344,7 @@ class SingboxConfigGenerator {
     return {
       'rules': rules,
       if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
-      'final': s.routingMode == RoutingMode.global ? 'proxy' : 'proxy',
+      'final': 'proxy',
       'auto_detect_interface': true,
     };
   }

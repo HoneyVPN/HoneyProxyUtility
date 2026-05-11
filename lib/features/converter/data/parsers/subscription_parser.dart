@@ -301,7 +301,7 @@ class SubscriptionParser {
             addresses: ((m['address'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
             dns: ((m['dns'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
             mtu: m['mtu'] is int ? m['mtu'] as int : 1420,
-            reserved: (m['reserved'] as List<dynamic>?)?.map((e) => e as int).toList(),
+            reserved: (m['reserved'] as List<dynamic>?)?.map((e) => e is int ? e : int.tryParse(e.toString()) ?? 0).toList(),
           );
         default:
           return null;
@@ -313,6 +313,7 @@ class SubscriptionParser {
 
   static bool _isLikelyBase64(String s) {
     if (s.length < 20) return false;
+    if (s.contains("://")) return false;
     final base64Chars = RegExp(r'^[A-Za-z0-9+/=\n\r]+$');
     return base64Chars.hasMatch(s);
   }

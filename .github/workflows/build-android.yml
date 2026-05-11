@@ -1,0 +1,90 @@
+name: Build Android
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  KEYSTORE_B64: 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
+  KEY_ALIAS: upload
+  KEY_PASSWORD: HoneyVPN2024!
+  STORE_PASSWORD: HoneyVPN2024!
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Decode keystore
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > android/upload-keystore.jks
+          cat > android/key.properties << 'EOF'
+          storePassword=${{ env.STORE_PASSWORD }}
+          keyPassword=${{ env.KEY_PASSWORD }}
+          keyAlias=${{ env.KEY_ALIAS }}
+          storeFile=../upload-keystore.jks
+          EOF
+
+      - name: Build APK (release)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Rename APKs
+        run: |
+          TAG=${{ github.ref_name }}
+          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+            base=$(basename "$f" .apk)
+            mv "$f" "build/app/outputs/flutter-apk/HoneyProxyUtility-${TAG}-${base#app-}.apk"
+          done
+
+      - name: Deploy APK to honeyvpn.ru
+        run: |
+          TAG=${{ github.ref_name }}
+          for f in build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk; do
+            curl -X POST https://api.honeyvpn.ru/deploy/android \
+              -H "X-Deploy-Token: 3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a" \
+              -H "X-Version: $TAG" \
+              -F "file=@$f" \
+              --fail --show-error --max-time 300 || true
+          done
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk
+          name: HoneyProxyUtility ${{ github.ref_name }}
+          body: |
+            ## HoneyProxyUtility ${{ github.ref_name }} — Android
+
+            ### Скачать APK
+            - **arm64-v8a** (большинство современных телефонов)
+            - **armeabi-v7a** (старые телефоны)
+            - **x86_64** (эмуляторы)
+
+            ### Установка
+            1. Скачай APK под свой процессор
+            2. Разреши установку из неизвестных источников
+            3. Установи и добавь подписку через @honeyvpnru_bot

@@ -21,6 +21,10 @@ enum DnsPreset {
 
 enum IpType { ipv4, ipv6, both }
 
+enum TunStack { system, gvisor, mixed }
+
+enum LogLevel { trace, debug, info, warn, error }
+
 class AppSettings {
   final ThemeMode themeMode;
   final RoutingMode routingMode;
@@ -31,7 +35,14 @@ class AppSettings {
   final bool multiplexerEnabled;
   final IpType preferredIpType;
   final bool allowLanConnections;
-  final String locale; // 'en' or 'ru'
+  final String locale;
+  // sing-box / VPN engine settings
+  final TunStack tunStack;
+  final bool blockAds;
+  final bool enableFakeip;
+  final LogLevel logLevel;
+  final int socksPort;
+  final int httpPort;
 
   const AppSettings({
     this.themeMode = ThemeMode.system,
@@ -44,6 +55,12 @@ class AppSettings {
     this.preferredIpType = IpType.both,
     this.allowLanConnections = false,
     this.locale = 'en',
+    this.tunStack = TunStack.mixed,
+    this.blockAds = true,
+    this.enableFakeip = true,
+    this.logLevel = LogLevel.warn,
+    this.socksPort = 2080,
+    this.httpPort = 2081,
   });
 
   AppSettings copyWith({
@@ -57,6 +74,12 @@ class AppSettings {
     IpType? preferredIpType,
     bool? allowLanConnections,
     String? locale,
+    TunStack? tunStack,
+    bool? blockAds,
+    bool? enableFakeip,
+    LogLevel? logLevel,
+    int? socksPort,
+    int? httpPort,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     routingMode: routingMode ?? this.routingMode,
@@ -68,6 +91,12 @@ class AppSettings {
     preferredIpType: preferredIpType ?? this.preferredIpType,
     allowLanConnections: allowLanConnections ?? this.allowLanConnections,
     locale: locale ?? this.locale,
+    tunStack: tunStack ?? this.tunStack,
+    blockAds: blockAds ?? this.blockAds,
+    enableFakeip: enableFakeip ?? this.enableFakeip,
+    logLevel: logLevel ?? this.logLevel,
+    socksPort: socksPort ?? this.socksPort,
+    httpPort: httpPort ?? this.httpPort,
   );
 
   Map<String, dynamic> toJson() => {
@@ -81,6 +110,12 @@ class AppSettings {
     'preferredIpType': preferredIpType.index,
     'allowLanConnections': allowLanConnections,
     'locale': locale,
+    'tunStack': tunStack.index,
+    'blockAds': blockAds,
+    'enableFakeip': enableFakeip,
+    'logLevel': logLevel.index,
+    'socksPort': socksPort,
+    'httpPort': httpPort,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> m) => AppSettings(
@@ -94,6 +129,12 @@ class AppSettings {
     preferredIpType: IpType.values[m['preferredIpType'] as int? ?? 2],
     allowLanConnections: m['allowLanConnections'] as bool? ?? false,
     locale: m['locale'] as String? ?? 'en',
+    tunStack: TunStack.values[m['tunStack'] as int? ?? 2],
+    blockAds: m['blockAds'] as bool? ?? true,
+    enableFakeip: m['enableFakeip'] as bool? ?? true,
+    logLevel: LogLevel.values[m['logLevel'] as int? ?? 3],
+    socksPort: m['socksPort'] as int? ?? 2080,
+    httpPort: m['httpPort'] as int? ?? 2081,
   );
 
   static AppSettings fromJsonString(String s) {
@@ -166,5 +207,23 @@ extension IpTypeExt on IpType {
     IpType.ipv4 => 'IPv4',
     IpType.ipv6 => 'IPv6',
     IpType.both => 'IPv4 + IPv6',
+  };
+}
+
+extension TunStackExt on TunStack {
+  String get label => switch (this) {
+    TunStack.system => 'System',
+    TunStack.gvisor => 'gVisor',
+    TunStack.mixed  => 'Mixed',
+  };
+}
+
+extension LogLevelExt on LogLevel {
+  String get label => switch (this) {
+    LogLevel.trace => 'Trace',
+    LogLevel.debug => 'Debug',
+    LogLevel.info  => 'Info',
+    LogLevel.warn  => 'Warn',
+    LogLevel.error => 'Error',
   };
 }
