@@ -11,7 +11,7 @@ OutputBaseFilename=HoneyProxyUtility-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 UninstallDisplayIcon={app}\HoneyProxyUtility.exe
 
 [Languages]
@@ -24,10 +24,13 @@ Name: "desktopicon"; Description: "Создать значок на рабоче
 [Files]
 Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Registry]
+Root: HKLM; Subkey: "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; ValueType: string; ValueName: "{app}\HoneyProxyUtility.exe"; ValueData: "RUNASADMIN"; Flags: uninsdeletevalue
+
 [Icons]
 Name: "{group}\HoneyVPN"; Filename: "{app}\HoneyProxyUtility.exe"
 Name: "{group}\{cm:UninstallProgram,HoneyProxyUtility}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\HoneyVPN"; Filename: "{app}\HoneyProxyUtility.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\HoneyProxyUtility.exe"; Description: "Запустить HoneyProxyUtility"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\HoneyProxyUtility.exe"; Description: "Запустить HoneyProxyUtility"; Flags: nowait postinstall skipifsilent runasoriginaluser
