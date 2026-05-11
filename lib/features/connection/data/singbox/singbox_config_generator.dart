@@ -280,6 +280,12 @@ class SingboxConfigGenerator {
           'ping_timeout': '15s',
           'permit_without_stream': false,
         };
+      case 'xhttp':
+        return {
+          'type': 'splithttp',
+          if (path.isNotEmpty) 'path': path,
+          if (host.isNotEmpty) 'host': host,
+        };
       case 'httpupgrade':
         return {
           'type': 'httpupgrade',
