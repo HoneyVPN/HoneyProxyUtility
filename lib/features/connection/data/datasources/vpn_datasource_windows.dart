@@ -375,7 +375,7 @@ class WindowsVpnDatasource {
         'address': ['198.18.0.1/16'],
         'mtu': 9000,
         'auto_route': true,
-        'strict_route': true,
+        'strict_route': false,
         'stack': 'mixed',
         'sniff': true,
         'sniff_override_destination': false,

@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import '../../../../app/app.dart' show rootScaffoldMessengerKey;
+import '../../../../app/app_toast.dart';
 import '../widgets/qr_scan_dialog.dart';
 
 import '../../data/parsers/base_parser.dart';
@@ -330,17 +330,10 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
 
   void _importOne(BuildContext ctx, WidgetRef ref, ParsedProxy p) {
     ref.read(serversNotifierProvider.notifier).addFromProxy(p);
-    final router = GoRouter.of(ctx);
-    final messenger = rootScaffoldMessengerKey.currentState!;
-    messenger.clearSnackBars();
-    messenger.showSnackBar(SnackBar(
-      content: Text('${p.displayName} added'),
-      duration: const Duration(seconds: 3),
-      action: SnackBarAction(
-        label: 'Servers',
-        onPressed: () { messenger.hideCurrentSnackBar(); router.go('/'); },
-      ),
-    ));
+    AppToast.show(ctx, '${p.displayName} added',
+      actionLabel: 'Servers',
+      onAction: () => GoRouter.of(ctx).go('/'),
+    );
   }
 
   void _importAll(BuildContext ctx, WidgetRef ref, List<ParsedProxy> proxies) {
@@ -350,16 +343,9 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
     if (subId.isNotEmpty) {
       ref.read(subscriptionsProvider.notifier).register(subId, serverCount: proxies.length);
     }
-    final router = GoRouter.of(ctx);
-    final messenger = rootScaffoldMessengerKey.currentState!;
-    messenger.clearSnackBars();
-    messenger.showSnackBar(SnackBar(
-      content: Text('${proxies.length} servers added'),
-      duration: const Duration(seconds: 3),
-      action: SnackBarAction(
-        label: 'Servers',
-        onPressed: () { messenger.hideCurrentSnackBar(); router.go('/'); },
-      ),
-    ));
+    AppToast.show(ctx, '${proxies.length} servers added',
+      actionLabel: 'Servers',
+      onAction: () => GoRouter.of(ctx).go('/'),
+    );
   }
 }
