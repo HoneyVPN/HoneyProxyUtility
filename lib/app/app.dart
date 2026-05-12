@@ -6,8 +6,6 @@ import 'app_router.dart';
 import 'app_theme.dart';
 import '../features/settings/presentation/notifiers/settings_notifier.dart';
 
-final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
-
 class HoneyProxyApp extends ConsumerWidget {
   const HoneyProxyApp({super.key});
 
@@ -25,7 +23,6 @@ class HoneyProxyApp extends ConsumerWidget {
       theme: honeyThemeLight,
       darkTheme: honeyThemeDark,
       themeMode: themeMode,
-      scaffoldMessengerKey: rootScaffoldMessengerKey,
       routerConfig: appRouter,
       locale: Locale(locale),
       localizationsDelegates: const [
