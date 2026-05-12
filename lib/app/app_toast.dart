@@ -36,7 +36,7 @@ class AppToast {
       bg     = NexPalette.darkSurface2;
       fg     = NexPalette.darkOnSurface;
       act    = NexPalette.accent;
-      border = null;
+      border = NexPalette.accent.withValues(alpha: 0.25);
     } else {
       bg     = NexPalette.lightSurface2;
       fg     = NexPalette.lightOnSurface;
