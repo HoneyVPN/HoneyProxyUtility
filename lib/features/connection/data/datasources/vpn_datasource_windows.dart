@@ -347,6 +347,33 @@ class WindowsVpnDatasource {
 
   Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy, AppSettings s) {
     final listen = s.allowLanConnections ? '0.0.0.0' : '127.0.0.1';
+
+    final routeRules = <Map<String, dynamic>>[
+      {'action': 'sniff'},
+      if (s.fragmentationEnabled) {'action': 'tls_fragment'},
+      {'ip_is_private': true, 'outbound': 'direct'},
+    ];
+    final ruleSets = <Map<String, dynamic>>[];
+
+    if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
+      routeRules.addAll([
+        {'rule_set': 'ru-blocked',           'outbound': 'proxy'},
+        {'rule_set': 'ru-blocked-community', 'outbound': 'proxy'},
+        {'rule_set': 're-filter',            'outbound': 'proxy'},
+        {'rule_set': 'ru',                   'outbound': 'direct'},
+      ]);
+      ruleSets.addAll([
+        _remoteRuleSet('ru-blocked',           'ru-blocked.srs'),
+        _remoteRuleSet('ru-blocked-community', 'ru-blocked-community.srs'),
+        _remoteRuleSet('re-filter',            're-filter.srs'),
+        _remoteRuleSet('ru',                   'ru.srs'),
+      ]);
+    }
+    if (s.blockAds) {
+      routeRules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
+      ruleSets.add(_remoteRuleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
+    }
+
     return {
       'log': {'level': s.logLevel.name},
       'experimental': {
@@ -356,7 +383,17 @@ class WindowsVpnDatasource {
         {'type': 'socks', 'tag': 'socks-in', 'listen': listen, 'listen_port': s.socksPort},
         {'type': 'http',  'tag': 'http-in',  'listen': listen, 'listen_port': s.httpPort},
       ],
-      'outbounds': [_buildOutbound(proxy), {'type': 'direct', 'tag': 'direct'}, {'type': 'block', 'tag': 'block'}],
+      'outbounds': [
+        _buildOutbound(proxy),
+        {'type': 'direct', 'tag': 'direct'},
+        {'type': 'block',  'tag': 'block'},
+      ],
+      'route': {
+        'rules': routeRules,
+        if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
+        'final': 'proxy',
+        'auto_detect_interface': true,
+      },
     };
   }
 
