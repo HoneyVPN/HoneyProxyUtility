@@ -345,6 +345,7 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
           onPressed: () {
             messenger.hideCurrentSnackBar();
             router.go('/');
+          },
         ),
       ),
     );
@@ -373,6 +374,7 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
           onPressed: () {
             messenger.hideCurrentSnackBar();
             router.go('/');
+          },
         ),
       ),
     );

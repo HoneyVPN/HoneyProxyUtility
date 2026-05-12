@@ -257,8 +257,6 @@ class _ProviderDetailView extends StatelessWidget {
             ),
           ),
 
-            ),
-
           const SizedBox(height: 16),
         ],
       ),
