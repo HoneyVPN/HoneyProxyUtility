@@ -16,10 +16,11 @@ class WindowsVpnDatasource {
   int _totalUp   = 0;
   int _totalDown = 0;
   bool _tunMode  = false;
+  String? _tunStopFilePath;
 
-  static const _socksPort  = 10808;
-  static const _httpPort   = 10809;
-  static const _clashPort  = 9090;
+  static const _socksPort = 10808;
+  static const _httpPort  = 10809;
+  static const _clashPort = 9090;
 
   WindowsVpnDatasource({required this.onStatusChanged});
 
@@ -30,10 +31,13 @@ class WindowsVpnDatasource {
     await stop();
     _tunMode = mode == ConnectionMode.tunnel;
 
-    final config  = _tunMode ? _buildTunConfig(proxy) : _buildProxyConfig(proxy);
-    final tmp     = await getTemporaryDirectory();
-    final cfgFile = File('${tmp.path}/honeyvpn_sb.json');
-    await cfgFile.writeAsString(jsonEncode(config));
+    // xHTTP is not supported by official sing-box — show clear error
+    if (proxy is VlessConfig && proxy.transport == 'xhttp') {
+      throw Exception(
+        'xHTTP (SplitHTTP) транспорт не поддерживается в Windows-версии.\n'
+        'Используйте сервер с Reality или WebSocket.',
+      );
+    }
 
     final exeDir = File(Platform.resolvedExecutable).parent;
     final sbExe  = File('${exeDir.path}/sing-box.exe');
@@ -43,6 +47,89 @@ class WindowsVpnDatasource {
 
     onStatusChanged(V2RayStatus(state: 'CONNECTING'));
 
+    if (_tunMode) {
+      await _startTunElevated(proxy, sbExe);
+    } else {
+      await _startProxy(proxy, sbExe);
+    }
+  }
+
+  // ── TUN mode: launch sing-box elevated via PowerShell UAC prompt ────────────
+
+  Future<void> _startTunElevated(ParsedProxy proxy, File sbExe) async {
+    final tmp = await getTemporaryDirectory();
+    final cfgFile  = File('${tmp.path}/honeyvpn_sb.json');
+    final psFile   = File('${tmp.path}/honeyvpn_tun.ps1');
+    final stopFile = File('${tmp.path}/honeyvpn_tun_stop');
+    _tunStopFilePath = stopFile.path;
+
+    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy)));
+    if (stopFile.existsSync()) stopFile.deleteSync();
+
+    // Paths for PowerShell (single-quote escaping: replace ' with '')
+    final sbPath  = sbExe.path.replaceAll("'", "''");
+    final cfgPath = cfgFile.path.replaceAll("'", "''");
+    final stopPath = stopFile.path.replaceAll("'", "''");
+
+    // PS1 script: sets env vars, starts sing-box, monitors stop file
+    await psFile.writeAsString([
+      r"$env:ENABLE_DEPRECATED_LEGACY_DNS_SERVERS = 'true'",
+      r"$env:ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER = 'true'",
+      r"$env:ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM = 'true'",
+      "Remove-Item -Path '$stopPath' -ErrorAction SilentlyContinue",
+      r"$proc = Start-Process -FilePath '" + sbPath + r"' -ArgumentList 'run','-c','" + cfgPath + r"' -WindowStyle Hidden -PassThru",
+      r"while (-not $proc.HasExited -and -not (Test-Path '" + stopPath + r"')) {",
+      r"    Start-Sleep -Milliseconds 300",
+      r"}",
+      r"if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }",
+      "Remove-Item -Path '$stopPath' -ErrorAction SilentlyContinue",
+    ].join("\r\n"));
+
+    // Launch the script elevated — this shows the UAC prompt
+    final psPath = psFile.path;
+    await Process.run('powershell', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      'Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList \'-NoProfile -ExecutionPolicy Bypass -File "$psPath"\'',
+    ]);
+
+    _connectedAt = DateTime.now();
+    _totalUp = 0;
+    _totalDown = 0;
+
+    // Wait for sing-box to initialize, then verify via Clash API
+    await Future.delayed(const Duration(milliseconds: 2500));
+
+    bool started = false;
+    try {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+      final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/'));
+      await req.close();
+      started = true;
+      client.close();
+    } catch (_) {}
+
+    if (!started) {
+      _tunStopFilePath = null;
+      _connectedAt = null;
+      throw Exception(
+        'TUN режим не запустился.\nВозможные причины:\n'
+        '• Запрос администратора был отклонён\n'
+        '• sing-box завершился с ошибкой',
+      );
+    }
+
+    onStatusChanged(V2RayStatus(state: 'CONNECTED'));
+    _startStatsStream();
+  }
+
+  // ── Proxy mode: launch sing-box without elevation ───────────────────────────
+
+  Future<void> _startProxy(ParsedProxy proxy, File sbExe) async {
+    final tmp = await getTemporaryDirectory();
+    final cfgFile = File('${tmp.path}/honeyvpn_sb.json');
+    await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy)));
+
+    final stderrBuf = StringBuffer();
     final proc = await Process.start(
       sbExe.path, ['run', '-c', cfgFile.path],
       environment: {
@@ -57,9 +144,7 @@ class WindowsVpnDatasource {
     _totalUp = 0;
     _totalDown = 0;
 
-    final stderrBuf = StringBuffer();
     proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((s) => stderrBuf.write(s));
-
     proc.exitCode.then((code) {
       if (_sbProcess == proc) {
         _sbProcess = null;
@@ -75,24 +160,20 @@ class WindowsVpnDatasource {
       throw Exception('sing-box exited unexpectedly: $lastLine');
     }
 
-    if (!_tunMode) {
-      await _setSystemProxy('127.0.0.1', _httpPort);
-    }
-
+    await _setSystemProxy('127.0.0.1', _httpPort);
     onStatusChanged(V2RayStatus(state: 'CONNECTED'));
-
     _startStatsStream();
   }
 
+  // ── Stats stream (shared between TUN and proxy modes) ───────────────────────
+
   void _startStatsStream() {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 5);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
 
     Future(() async {
       StreamSubscription<String>? sub;
       try {
-        final req  = await client.getUrl(
-            Uri.parse('http://127.0.0.1:$_clashPort/traffic'));
+        final req  = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/traffic'));
         final resp = await req.close();
 
         sub = resp
@@ -100,7 +181,6 @@ class WindowsVpnDatasource {
             .transform(const LineSplitter())
             .listen((line) {
           if (line.trim().isEmpty) return;
-          // Guard against race: stop() may have been called before first data arrives
           final connectedAt = _connectedAt;
           if (connectedAt == null) return;
           try {
@@ -126,7 +206,6 @@ class WindowsVpnDatasource {
           } catch (_) {}
         }, onError: (_) {});
 
-        // Assign after creation so stop() can cancel even if called concurrently
         _statsSub = sub;
       } catch (_) {
         sub?.cancel();
@@ -146,22 +225,36 @@ class WindowsVpnDatasource {
       final h = elapsed.inHours.toString().padLeft(2, '0');
       final m = (elapsed.inMinutes  % 60).toString().padLeft(2, '0');
       final s = (elapsed.inSeconds  % 60).toString().padLeft(2, '0');
-      onStatusChanged(V2RayStatus(
-        state: 'CONNECTED', duration: '$h:$m:$s',
-      ));
+      onStatusChanged(V2RayStatus(state: 'CONNECTED', duration: '$h:$m:$s'));
     });
   }
+
+  // ── Stop ────────────────────────────────────────────────────────────────────
 
   Future<void> stop() async {
     await _statsSub?.cancel();
     _statsSub = null;
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
-    _connectedAt   = null;
-    _sbProcess?.kill();
-    _sbProcess = null;
+    _connectedAt = null;
+
+    if (_sbProcess != null) {
+      _sbProcess?.kill();
+      _sbProcess = null;
+    } else {
+      _signalTunStop();
+    }
+    _tunMode = false;
+    _tunStopFilePath = null;
+
     try { await _clearSystemProxy(); } catch (_) {}
     onStatusChanged(V2RayStatus(state: 'DISCONNECTED'));
+  }
+
+  void _signalTunStop() {
+    final path = _tunStopFilePath;
+    if (path == null) return;
+    try { File(path).writeAsStringSync('stop'); } catch (_) {}
   }
 
   Future<int> ping(ParsedProxy proxy) async {
@@ -177,10 +270,6 @@ class WindowsVpnDatasource {
     }
   }
 
-  /// Dispose is synchronous (Riverpod onDispose constraint).
-  /// Kill process and cancel subscriptions synchronously,
-  /// then fire-and-forget the async registry cleanup so the
-  /// system proxy is always reset even if the app crashes.
   void dispose() {
     _statsSub?.cancel();
     _statsSub = null;
@@ -189,21 +278,24 @@ class WindowsVpnDatasource {
     _connectedAt = null;
     _sbProcess?.kill();
     _sbProcess = null;
+    _signalTunStop();
     _clearSystemProxy().catchError((_) {});
   }
 
+  // ── System proxy (proxy mode only) ─────────────────────────────────────────
+
   Future<void> _setSystemProxy(String host, int port) async {
-    const k =
-        r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
+    const k = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
     await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '1', '/f']);
     await Process.run('reg', ['add', k, '/v', 'ProxyServer',  '/t', 'REG_SZ',    '/d', '$host:$port', '/f']);
   }
 
   Future<void> _clearSystemProxy() async {
-    const k =
-        r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
+    const k = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
     await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '0', '/f']);
   }
+
+  // ── Config builders ─────────────────────────────────────────────────────────
 
   Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy) => {
     'log': {'level': 'warn'},
@@ -245,13 +337,12 @@ class WindowsVpnDatasource {
     'outbounds': [
       _buildOutbound(proxy),
       {'type': 'direct', 'tag': 'direct'},
-  
     ],
     'route': {
       'rules': [
         {'action': 'sniff'},
         {'protocol': 'dns', 'action': 'hijack-dns'},
-        {'ip_is_private': true,    'outbound': 'direct'},
+        {'ip_is_private': true, 'outbound': 'direct'},
       ],
       'final': 'proxy',
       'auto_detect_interface': true,
@@ -352,11 +443,6 @@ class WindowsVpnDatasource {
           if (host.isNotEmpty) 'host': [host],
         },
         'grpc' => {'type': 'grpc', 'service_name': grpcService},
-        'xhttp' => {
-          'type': 'splithttp',
-          'path': path.isEmpty ? '/' : path,
-          if (host.isNotEmpty) 'host': host,
-        },
         'httpupgrade' => {
           'type': 'httpupgrade',
           'path': path.isEmpty ? '/' : path,
