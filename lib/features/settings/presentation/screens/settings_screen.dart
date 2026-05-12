@@ -101,14 +101,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           _SwitchTile(
-            icon: Icons.developer_board_outlined,
-            title: s.fragmentationTitle,
-            subtitle: s.fragmentationSubtitle,
-            value: settings.fragmentationEnabled,
-            onChanged: notifier.setFragmentation,
-          ),
-
-          _SwitchTile(
             icon: Icons.multiple_stop_outlined,
             title: s.multiplexerTitle,
             subtitle: s.multiplexerSubtitle,

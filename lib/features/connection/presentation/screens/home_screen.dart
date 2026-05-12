@@ -18,7 +18,9 @@ import '../../../servers/data/models/server_profile_model.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../servers/presentation/widgets/server_list_tile.dart';
 import '../../../subscriptions/presentation/screens/subscriptions_screen.dart';
-import '../../../update/update_provider.dart';
+import '../../../update/update_provider.dart'
+import '../../../settings/presentation/notifiers/settings_notifier.dart'
+import '../../../settings/data/models/app_settings.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -37,6 +39,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final conn = ref.watch(connectionNotifierProvider);
     final selected = ref.watch(selectedServerProvider);
     final servers = ref.watch(serversNotifierProvider);
+    final settings = ref.watch(settingsProvider).value ?? const AppSettings();
     final subsState = ref.watch(subscriptionsProvider).value;
     final subs = subsState?.subs ?? [];
     final s = ref.watch(stringsProvider);
@@ -92,6 +95,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             selected: selected,
             s: s,
             onConnectTap: () => _handleConnectTap(ref, conn, selected),
+            connectionMode: settings.connectionMode,
+            onModeChanged: ref.read(settingsProvider.notifier).setConnectionMode,
           ),
 
           // Fixed: speed stats when connected
@@ -163,7 +168,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       items.add(ServerListTile(
                         server: sv,
                         isSelected: sv.id == selected?.id,
-                        onTap: () => ref.read(serversNotifierProvider.notifier).selectServer(sv),
+                        onTap: () {
+                          ref.read(serversNotifierProvider.notifier).selectServer(sv);
+                          if (conn.isConnected) {
+                            ref.read(connectionNotifierProvider.notifier).connect(sv);
+                          }
+                        },
                         onDelete: () => _confirmDelete(context, ref, sv, s),
                         onTapDetail: () => context.push('/servers/${sv.id}'),
                       ));
@@ -284,12 +294,16 @@ class _StatusCard extends StatelessWidget {
   final ServerProfileModel? selected;
   final S s;
   final VoidCallback onConnectTap;
+  final ConnectionMode connectionMode;
+  final ValueChanged<ConnectionMode> onModeChanged;
 
   const _StatusCard({
     required this.conn,
     required this.selected,
     required this.s,
     required this.onConnectTap,
+    required this.connectionMode,
+    required this.onModeChanged,
   });
 
   @override
@@ -328,7 +342,10 @@ class _StatusCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
@@ -380,12 +397,81 @@ class _StatusCard extends StatelessWidget {
           const SizedBox(width: 12),
           ConnectButton(status: conn.status, onTap: onConnectTap),
         ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _ModeButton(
+                  label: 'TUN',
+                  icon: Icons.vpn_lock_outlined,
+                  selected: connectionMode == ConnectionMode.tunnel,
+                  onTap: () => onModeChanged(ConnectionMode.tunnel),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ModeButton(
+                  label: 'Proxy',
+                  icon: Icons.device_hub_outlined,
+                  selected: connectionMode == ConnectionMode.proxy,
+                  onTap: () => onModeChanged(ConnectionMode.proxy),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-// ── Group header ──────────────────────────────────────────────────────────────
+// ── Mode button ──────────────────────────────────────────────────────────────
+
+class _ModeButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ModeButton({required this.label, required this.icon, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? NexPalette.accent.withOpacity(0.12) : cs.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? NexPalette.accent.withOpacity(0.5) : cs.outlineVariant.withOpacity(0.4),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: selected ? NexPalette.accent : cs.onSurfaceVariant),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                color: selected ? NexPalette.accent : cs.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Group header ───────────────────────────────────────────────────────────────
 
 class _GroupHeader extends StatelessWidget {
   final String label;

@@ -7,9 +7,16 @@ class SingboxConfigGenerator {
   const SingboxConfigGenerator();
 
   String generate(ParsedProxy proxy, AppSettings settings) {
-    final outbounds = <Map<String, dynamic>>[
-      _outbound(proxy),
-    ];
+    final proxyOut = _outbound(proxy);
+    if (settings.multiplexerEnabled) {
+      proxyOut['multiplex'] = {
+        'enabled': true,
+        'protocol': 'smux',
+        'max_connections': 4,
+        'min_streams': 4,
+      };
+    }
+    final outbounds = <Map<String, dynamic>>[proxyOut];
 
     // ShadowTLS requires the inner proxy as a separate named outbound
     if (proxy is ShadowTlsConfig) {
@@ -52,7 +59,7 @@ class SingboxConfigGenerator {
 
     return {
       'servers': [
-        {'tag': 'remote-dns', 'address': remoteDns, 'detour': 'proxy'},
+        {'tag': 'remote-dns', 'address': remoteDns, 'detour': 'proxy', 'strategy': _ipStrategy(s.preferredIpType)},
         {'tag': 'local-dns', 'address': 'https://223.5.5.5/dns-query', 'detour': 'direct'},
         if (s.enableFakeip) {'tag': 'fakeip-dns', 'address': 'fakeip'},
         {'tag': 'block-dns', 'address': 'rcode://success'},
@@ -86,13 +93,13 @@ class SingboxConfigGenerator {
     {
       'type': 'socks',
       'tag': 'socks-in',
-      'listen': '127.0.0.1',
+      'listen': s.allowLanConnections ? '0.0.0.0' : '127.0.0.1',
       'listen_port': s.socksPort,
     },
     {
       'type': 'http',
       'tag': 'http-in',
-      'listen': '127.0.0.1',
+      'listen': s.allowLanConnections ? '0.0.0.0' : '127.0.0.1',
       'listen_port': s.httpPort,
     },
   ];
@@ -298,6 +305,12 @@ class SingboxConfigGenerator {
         return {'type': 'tcp'};
     }
   }
+
+  String _ipStrategy(IpType t) => switch (t) {
+    IpType.ipv4 => 'ipv4_only',
+    IpType.ipv6 => 'ipv6_only',
+    IpType.both => 'prefer_ipv4',
+  };
 
   Map<String, dynamic> _direct() => {'type': 'direct', 'tag': 'direct'};
   Map<String, dynamic> _block() => {'type': 'block', 'tag': 'block'};
