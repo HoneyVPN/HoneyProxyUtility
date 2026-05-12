@@ -163,6 +163,16 @@ final honeyThemeLight = ThemeData(
       const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w500),
     ),
   ),
+  snackBarTheme: SnackBarThemeData(
+    backgroundColor: NexPalette.lightOnSurface,
+    contentTextStyle: const TextStyle(
+      fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w500,
+      color: NexPalette.lightSurface,
+    ),
+    actionTextColor: NexPalette.accentDark,
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  ),
 );
 
 // ─── Dark theme ─────────────────────────────────────────────────────────────
@@ -282,5 +292,15 @@ final honeyThemeDark = ThemeData(
     labelTextStyle: WidgetStateProperty.all(
       const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w500, color: NexPalette.darkOnSurface),
     ),
+  ),
+  snackBarTheme: SnackBarThemeData(
+    backgroundColor: NexPalette.darkSurface2,
+    contentTextStyle: const TextStyle(
+      fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w500,
+      color: NexPalette.darkOnSurface,
+    ),
+    actionTextColor: NexPalette.accent,
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
   ),
 );
