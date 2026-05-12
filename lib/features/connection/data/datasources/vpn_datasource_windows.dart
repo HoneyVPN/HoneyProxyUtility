@@ -201,7 +201,7 @@ class WindowsVpnDatasource {
       throw Exception('sing-box exited unexpectedly: $lastLine');
     }
 
-    await _setSystemProxy('127.0.0.1', _httpPort);
+    await _setSystemProxy('127.0.0.1', settings.httpPort);
     onStatusChanged(V2RayStatus(state: 'CONNECTED'));
     unawaited(_startStatsStream());
   }
