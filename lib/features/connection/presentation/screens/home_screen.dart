@@ -82,128 +82,109 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             tooltip: s.importServerTooltip,
             onPressed: () => context.push('/converter'),
           ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.push('/settings'),
-          ),
         ],
       ),
-      body: CustomScrollView(
-        slivers: [
-          // ── Status / Connect card ────────────────────────────────────────
-          SliverToBoxAdapter(
-            child: _StatusCard(
-              conn: conn,
-              selected: selected,
-              s: s,
-              onConnectTap: () => _handleConnectTap(ref, conn, selected),
-            ),
+      body: Column(
+        children: [
+          // Fixed: status / connect card
+          _StatusCard(
+            conn: conn,
+            selected: selected,
+            s: s,
+            onConnectTap: () => _handleConnectTap(ref, conn, selected),
           ),
 
-          // ── Speed stats (when connected) ─────────────────────────────────
+          // Fixed: speed stats when connected
           if (conn.isConnected)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: SpeedStatsBar(stats: conn.stats),
-              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: SpeedStatsBar(stats: conn.stats),
             ),
 
-          // ── Error banner ─────────────────────────────────────────────────
+          // Fixed: error banner
           if (conn.status == ConnectionStatus.error && conn.errorMessage != null)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: _ErrorBanner(message: conn.errorMessage!),
-              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _ErrorBanner(message: conn.errorMessage!),
             ),
 
-          // ── Update banner ─────────────────────────────────────────────────
+          // Fixed: update banner
           if (!_updateDismissed && update != null && update.hasUpdate)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: _UpdateBanner(
-                  info: update,
-                  onDismiss: () => setState(() => _updateDismissed = true),
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _UpdateBanner(
+                info: update,
+                onDismiss: () => setState(() => _updateDismissed = true),
               ),
             ),
 
-          // ── Server list ──────────────────────────────────────────────────
-          servers.when(
-            loading: () => const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (e, _) => SliverFillRemaining(
-              child: Center(child: Text('Error: $e')),
-            ),
-            data: (list) {
-              if (list.isEmpty) {
-                return SliverFillRemaining(
-                  child: _EmptyState(s: s, onAdd: () => context.push('/converter')),
-                );
-              }
+          // Scrollable: server list
+          Expanded(
+            child: servers.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('Error: $e')),
+              data: (list) {
+                if (list.isEmpty) {
+                  return _EmptyState(s: s, onAdd: () => context.push('/converter'));
+                }
 
-              final groups = <String, List<ServerProfileModel>>{};
-              for (final sv in list) {
-                (groups[sv.subscriptionId] ??= []).add(sv);
-              }
+                final groups = <String, List<ServerProfileModel>>{};
+                for (final sv in list) {
+                  (groups[sv.subscriptionId] ??= []).add(sv);
+                }
 
-              final keys = groups.keys.toList()
-                ..sort((a, b) {
-                  if (a.isEmpty) return -1;
-                  if (b.isEmpty) return 1;
-                  return a.compareTo(b);
-                });
+                final keys = groups.keys.toList()
+                  ..sort((a, b) {
+                    if (a.isEmpty) return -1;
+                    if (b.isEmpty) return 1;
+                    return a.compareTo(b);
+                  });
 
-              final items = <Widget>[];
-              for (int gi = 0; gi < keys.length; gi++) {
-                final key = keys[gi];
-                final group = groups[key]!;
-                final isCollapsed = _collapsed.contains(key);
-                final label = key.isEmpty ? s.manualGroup : (subNames[key] ?? _hostFromUrl(key));
+                final items = <Widget>[];
+                for (int gi = 0; gi < keys.length; gi++) {
+                  final key = keys[gi];
+                  final group = groups[key]!;
+                  final isCollapsed = _collapsed.contains(key);
+                  final label = key.isEmpty ? s.manualGroup : (subNames[key] ?? _hostFromUrl(key));
 
-                items.add(_GroupHeader(
-                  label: label,
-                  count: group.length,
-                  isManual: key.isEmpty,
-                  isCollapsed: isCollapsed,
-                  onToggle: () => setState(() {
-                    if (isCollapsed) _collapsed.remove(key); else _collapsed.add(key);
-                  }),
-                  onDeleteGroup: () => _confirmDeleteGroup(context, ref, label, group, key, s),
-                ));
+                  items.add(_GroupHeader(
+                    label: label,
+                    count: group.length,
+                    isManual: key.isEmpty,
+                    isCollapsed: isCollapsed,
+                    onToggle: () => setState(() {
+                      if (isCollapsed) _collapsed.remove(key); else _collapsed.add(key);
+                    }),
+                    onDeleteGroup: () => _confirmDeleteGroup(context, ref, label, group, key, s),
+                  ));
 
-                if (!isCollapsed) {
-                  for (final sv in group) {
-                    items.add(ServerListTile(
-                      server: sv,
-                      isSelected: sv.id == selected?.id,
-                      onTap: () => ref.read(serversNotifierProvider.notifier).selectServer(sv),
-                      onDelete: () => _confirmDelete(context, ref, sv, s),
-                      onTapDetail: () => context.push('/servers/${sv.id}'),
+                  if (!isCollapsed) {
+                    for (final sv in group) {
+                      items.add(ServerListTile(
+                        server: sv,
+                        isSelected: sv.id == selected?.id,
+                        onTap: () => ref.read(serversNotifierProvider.notifier).selectServer(sv),
+                        onDelete: () => _confirmDelete(context, ref, sv, s),
+                        onTapDetail: () => context.push('/servers/${sv.id}'),
+                      ));
+                    }
+                  }
+
+                  if (gi < keys.length - 1) {
+                    items.add(Divider(
+                      height: 1,
+                      color: Theme.of(context).colorScheme.outlineVariant,
                     ));
                   }
                 }
 
-                if (gi < keys.length - 1) {
-                  items.add(Divider(
-                    height: 1,
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ));
-                }
-              }
-
-              return SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (_, i) => i == items.length
-                      ? const SizedBox(height: 80)
-                      : items[i],
-                  childCount: items.length + 1,
-                ),
-              );
-            },
+                return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 80),
+                  itemCount: items.length,
+                  itemBuilder: (_, i) => items[i],
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -342,7 +323,6 @@ class _StatusCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Status orb
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
             width: 50,
@@ -366,7 +346,6 @@ class _StatusCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 14),
-          // Status text
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
