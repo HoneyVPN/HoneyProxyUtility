@@ -72,13 +72,17 @@ class HoneyProxyVpnService : VpnService() {
         }
         tunFd = fd
 
-        // Clear O_CLOEXEC so sing-box subprocess inherits the fd
+        // Clear O_CLOEXEC so sing-box subprocess inherits the fd.
+        // Os.fcntl is @hide — access via reflection.
         try {
-            Os.fcntl(fd.fileDescriptor, OsConstants.F_SETFD, 0)
+            val fcntl = Os::class.java.getMethod(
+                "fcntl", java.io.FileDescriptor::class.java, Int::class.java, Int::class.java
+            )
+            fcntl.invoke(null, fd.fileDescriptor, OsConstants.F_SETFD, 0)
         } catch (e: Exception) {
             Log.w(TAG, "fcntl clear CLOEXEC failed: ${e.message}")
         }
-        val rawFd = fd.fileDescriptor.fd
+        val rawFd = fd.fd  // ParcelFileDescriptor.getFd() — public API
         Log.d(TAG, "TUN established, fd=$rawFd")
 
         isRunning = true
