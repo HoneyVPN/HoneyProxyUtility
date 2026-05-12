@@ -178,8 +178,9 @@ class _ProviderDetailView extends StatelessWidget {
                     runSpacing: 6,
                     children: provider.protocols
                         .map((p) => Chip(
-                              label: Text(p, style: const TextStyle(fontSize: 12)),
-                              backgroundColor: cs.primaryContainer.withOpacity(0.5),
+                              label: Text(p, style: TextStyle(fontSize: 12, color: cs.onSurface)),
+                              backgroundColor: cs.surfaceContainerHighest,
+                              side: BorderSide(color: cs.outlineVariant.withOpacity(0.5)),
                             ))
                         .toList(),
                   ),
