@@ -52,7 +52,7 @@ class VpnDatasource {
       _listenToStats();
       await _vpnChannel.invokeMethod<void>('start', {'config': config});
     } else {
-      await _windows!.start(proxy, mode: mode);
+      await _windows!.start(proxy, mode: mode, settings: settings);
     }
   }
 

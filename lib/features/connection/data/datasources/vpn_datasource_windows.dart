@@ -31,7 +31,11 @@ class WindowsVpnDatasource {
   Future<void> initialize() async {}
   Future<bool> requestPermission() async => true;
 
-  Future<void> start(ParsedProxy proxy, {ConnectionMode mode = ConnectionMode.tunnel}) async {
+  Future<void> start(
+    ParsedProxy proxy, {
+    ConnectionMode mode = ConnectionMode.tunnel,
+    AppSettings settings = const AppSettings(),
+  }) async {
     await stop();
     _tunMode = mode == ConnectionMode.tunnel;
 
@@ -44,15 +48,15 @@ class WindowsVpnDatasource {
     onStatusChanged(V2RayStatus(state: 'CONNECTING'));
 
     if (_tunMode) {
-      await _startTunElevated(proxy, sbExe);
+      await _startTunElevated(proxy, sbExe, settings);
     } else {
-      await _startProxy(proxy, sbExe);
+      await _startProxy(proxy, sbExe, settings);
     }
   }
 
   // ── TUN mode ─────────────────────────────────────────────────────────────────
 
-  Future<void> _startTunElevated(ParsedProxy proxy, File sbExe) async {
+  Future<void> _startTunElevated(ParsedProxy proxy, File sbExe, AppSettings settings) async {
     final tmp      = await getTemporaryDirectory();
     final cfgFile  = File('${tmp.path}/honeyvpn_sb.json');
     final psFile   = File('${tmp.path}/honeyvpn_tun.ps1');
@@ -65,7 +69,7 @@ class WindowsVpnDatasource {
     // Raw IP without CIDR for OS route command.
     final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
 
-    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, excludeIps: proxyIps)));
+    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, settings: settings, excludeIps: proxyIps)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
     final sbPath   = sbExe.path.replaceAll("'", "''");
@@ -154,10 +158,10 @@ class WindowsVpnDatasource {
 
   // ── Proxy mode ────────────────────────────────────────────────────────────────
 
-  Future<void> _startProxy(ParsedProxy proxy, File sbExe) async {
+  Future<void> _startProxy(ParsedProxy proxy, File sbExe, AppSettings settings) async {
     final tmp     = await getTemporaryDirectory();
     final cfgFile = File('${tmp.path}/honeyvpn_sb.json');
-    await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy)));
+    await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy, settings)));
 
     final stderrBuf = StringBuffer();
     final proc = await Process.start(
@@ -341,17 +345,20 @@ class WindowsVpnDatasource {
 
   // ── Config builders ───────────────────────────────────────────────────────────
 
-  Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy) => {
-    'log': {'level': 'warn'},
-    'experimental': {
-      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-    },
-    'inbounds': [
-      {'type': 'socks', 'tag': 'socks-in', 'listen': '127.0.0.1', 'listen_port': _socksPort},
-      {'type': 'http',  'tag': 'http-in',  'listen': '127.0.0.1', 'listen_port': _httpPort},
-    ],
-    'outbounds': [_buildOutbound(proxy), {'type': 'direct', 'tag': 'direct'}],
-  };
+  Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy, AppSettings s) {
+    final listen = s.allowLanConnections ? '0.0.0.0' : '127.0.0.1';
+    return {
+      'log': {'level': s.logLevel.name},
+      'experimental': {
+        'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+      },
+      'inbounds': [
+        {'type': 'socks', 'tag': 'socks-in', 'listen': listen, 'listen_port': s.socksPort},
+        {'type': 'http',  'tag': 'http-in',  'listen': listen, 'listen_port': s.httpPort},
+      ],
+      'outbounds': [_buildOutbound(proxy), {'type': 'direct', 'tag': 'direct'}, {'type': 'block', 'tag': 'block'}],
+    };
+  }
 
   static Future<List<String>> _resolveHost(String host) async {
     final isIp = RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(host);
@@ -368,50 +375,101 @@ class WindowsVpnDatasource {
     }
   }
 
-  Map<String, dynamic> _buildTunConfig(ParsedProxy proxy, {List<String> excludeIps = const []}) => {
-    'log': {'level': 'warn'},
-    'dns': {
-      'servers': [
-        {'tag': 'remote', 'address': 'udp://8.8.8.8',  'detour': 'proxy'},
-        {'tag': 'local',  'address': 'local',            'detour': 'direct'},
-      ],
-      'rules': [
-        {'outbound': 'any', 'server': 'local'},
-      ],
-      'final': 'remote',
-      'independent_cache': true,
-    },
-    'experimental': {
-      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-    },
-    'inbounds': [
-      {
-        'type': 'tun',
-        'tag': 'tun-in',
-        'address': ['198.18.0.1/16'],
-        'mtu': 9000,
-        'auto_route': true,
-        'strict_route': false,
-        'stack': 'mixed',
-        'sniff': true,
-        'sniff_override_destination': false,
-        if (excludeIps.isNotEmpty) 'route_exclude_address': excludeIps,
+  Map<String, dynamic> _buildTunConfig(
+    ParsedProxy proxy, {
+    AppSettings settings = const AppSettings(),
+    List<String> excludeIps = const [],
+  }) {
+    final remoteDns = _remoteDns(settings);
+    final dnsRules = <Map<String, dynamic>>[
+      {'outbound': 'any', 'server': 'local'},
+    ];
+    if (settings.routingMode == RoutingMode.bypassRU || settings.routingMode == RoutingMode.rules) {
+      dnsRules.add({'rule_set': 'ru', 'server': 'local'});
+    }
+
+    final routeRules = <Map<String, dynamic>>[
+      {'action': 'sniff'},
+      if (settings.fragmentationEnabled) {'action': 'tls_fragment'},
+      {'protocol': 'dns', 'action': 'hijack-dns'},
+      {'ip_is_private': true, 'outbound': 'direct'},
+    ];
+    final ruleSets = <Map<String, dynamic>>[];
+
+    if (settings.routingMode == RoutingMode.bypassRU || settings.routingMode == RoutingMode.rules) {
+      routeRules.addAll([
+        {'rule_set': 'ru-blocked',           'outbound': 'proxy'},
+        {'rule_set': 'ru-blocked-community', 'outbound': 'proxy'},
+        {'rule_set': 're-filter',            'outbound': 'proxy'},
+        {'rule_set': 'ru',                   'outbound': 'direct'},
+      ]);
+      ruleSets.addAll([
+        _remoteRuleSet('ru-blocked',           'ru-blocked.srs'),
+        _remoteRuleSet('ru-blocked-community', 'ru-blocked-community.srs'),
+        _remoteRuleSet('re-filter',            're-filter.srs'),
+        _remoteRuleSet('ru',                   'ru.srs'),
+      ]);
+    }
+    if (settings.blockAds) {
+      routeRules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
+      ruleSets.add(_remoteRuleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
+    }
+
+    return {
+      'log': {'level': settings.logLevel.name},
+      'dns': {
+        'servers': [
+          {'tag': 'remote', 'address': remoteDns, 'detour': 'proxy'},
+          {'tag': 'local',  'address': 'local',   'detour': 'direct'},
+        ],
+        'rules': dnsRules,
+        'final': 'remote',
+        'independent_cache': true,
       },
-    ],
-    'outbounds': [
-      _buildOutbound(proxy),
-      {'type': 'direct', 'tag': 'direct'},
-    ],
-    'route': {
-      'rules': [
-        {'action': 'sniff'},
-        {'protocol': 'dns', 'action': 'hijack-dns'},
-        {'ip_is_private': true, 'outbound': 'direct'},
+      'experimental': {
+        'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+      },
+      'inbounds': [
+        {
+          'type': 'tun',
+          'tag': 'tun-in',
+          'address': ['198.18.0.1/16'],
+          'mtu': 9000,
+          'auto_route': true,
+          'strict_route': false,
+          'stack': settings.tunStack.name,
+          'sniff': true,
+          'sniff_override_destination': false,
+          if (excludeIps.isNotEmpty) 'route_exclude_address': excludeIps,
+        },
       ],
-      'final': 'proxy',
-      'auto_detect_interface': true,
-    },
+      'outbounds': [
+        _buildOutbound(proxy),
+        {'type': 'direct', 'tag': 'direct'},
+        {'type': 'block',  'tag': 'block'},
+      ],
+      'route': {
+        'rules': routeRules,
+        if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
+        'final': 'proxy',
+        'auto_detect_interface': true,
+      },
+    };
+  }
+
+  static String _remoteDns(AppSettings s) => switch (s.dnsPreset) {
+    DnsPreset.cloudflare => 'tls://1.1.1.1',
+    DnsPreset.google     => 'tls://8.8.8.8',
+    DnsPreset.adguard    => 'tls://94.140.14.14',
+    DnsPreset.custom     => s.customDnsUrl.isNotEmpty ? s.customDnsUrl : 'tls://1.1.1.1',
   };
+
+  static Map<String, dynamic> _remoteRuleSet(String tag, String filename) {
+    const base   = 'https://github.com/runetfreedom/russia-blocked-geoip/raw/release/srs';
+    const adBase = 'https://github.com/SagerNet/sing-geosite/raw/rule-set';
+    final url = filename == 'geosite-category-ads-all.srs' ? '$adBase/$filename' : '$base/$filename';
+    return {'type': 'remote', 'tag': tag, 'format': 'binary', 'url': url, 'download_detour': 'direct', 'update_interval': '7d'};
+  }
 
   Map<String, dynamic> _buildOutbound(ParsedProxy proxy) => switch (proxy) {
     VlessConfig c => {

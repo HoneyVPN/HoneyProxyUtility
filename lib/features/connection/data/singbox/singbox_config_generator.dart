@@ -88,7 +88,7 @@ class SingboxConfigGenerator {
     {
       'type': 'tun',
       'tag': 'tun-in',
-      'address': ['172.19.0.1/30', 'fdfe:dcba:9876::1/126'],
+      'address': ['198.18.0.1/16', 'fdfe:dcba:9876::1/126'],
       'mtu': 9000,
       'auto_route': true,
       'strict_route': true,
