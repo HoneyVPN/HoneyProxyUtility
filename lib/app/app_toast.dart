@@ -25,11 +25,24 @@ class AppToast {
     final overlay = Navigator.of(context, rootNavigator: true).overlay;
     if (overlay == null) return;
 
-    // Toast always uses dark surface — works on both light and dark themes,
-    // avoids theme detection issues with OverlayEntry context.
-    const bg  = NexPalette.darkSurface2;
-    const fg  = NexPalette.darkOnSurface;
-    const act = NexPalette.accent;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final Color bg;
+    final Color fg;
+    final Color act;
+    final Color? border;
+
+    if (isDark) {
+      bg     = NexPalette.darkSurface2;
+      fg     = NexPalette.darkOnSurface;
+      act    = NexPalette.accent;
+      border = null;
+    } else {
+      bg     = NexPalette.lightSurface2;
+      fg     = NexPalette.lightOnSurface;
+      act    = NexPalette.accentDark;
+      border = NexPalette.accentDark.withValues(alpha: 0.25);
+    }
 
     _entry = OverlayEntry(
       builder: (_) => _ToastOverlay(
@@ -39,6 +52,7 @@ class AppToast {
         bg: bg,
         fg: fg,
         act: act,
+        border: border,
       ),
     );
 
@@ -61,6 +75,7 @@ class _ToastOverlay extends StatelessWidget {
   final Color bg;
   final Color fg;
   final Color act;
+  final Color? border;
 
   const _ToastOverlay({
     required this.message,
@@ -69,12 +84,11 @@ class _ToastOverlay extends StatelessWidget {
     required this.act,
     this.actionLabel,
     this.onAction,
+    this.border,
   });
 
   @override
   Widget build(BuildContext context) {
-
-    // Position above the bottom nav bar (nav ~76px + 12px padding)
     return Positioned(
       left: 16,
       right: 16,
@@ -86,8 +100,13 @@ class _ToastOverlay extends StatelessWidget {
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(12),
+            border: border != null ? Border.all(color: border!, width: 1) : null,
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 12, offset: const Offset(0, 4)),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
           child: Row(
