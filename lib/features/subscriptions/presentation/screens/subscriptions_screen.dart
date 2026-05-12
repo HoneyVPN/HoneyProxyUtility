@@ -8,12 +8,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-final _log = Logger('SubscriptionsNotifier');
-
 import '../../data/models/subscription_model.dart';
 import '../../../converter/data/parsers/subscription_parser.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../../app/app_theme.dart';
+
+final _log = Logger('SubscriptionsNotifier');
 
 const _subsKey = 'nexproxy_subscriptions';
 const _corsBase = '/proxy/?url=';
@@ -163,8 +163,8 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
   }
 
   Future<void> refreshAll() async {
-    final subs = List.of(state.value?.subs ?? []);
-    await Future.wait(subs.map(_doRefresh));
+    final subs = List<SubscriptionModel>.of(state.value?.subs ?? []);
+    await Future.wait(subs.map<Future<void>>(_doRefresh));
   }
 
   Future<void> refresh(int id) async {
