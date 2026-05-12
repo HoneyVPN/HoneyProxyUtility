@@ -108,6 +108,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: _ErrorBanner(message: conn.errorMessage!),
             ),
 
+          // Fixed: Hysteria promo (only when user has the single built-in subscription)
+          if (subs.length == 1 && subs.first.url.contains('sub.honeyvpn.ru'))
+            _HysteriaBanner(onTap: () => context.go('/marketplace')),
+
           // Fixed: update banner
           if (!_updateDismissed && update != null && update.hasUpdate)
             Padding(
@@ -618,6 +622,66 @@ class _UpdateBannerState extends State<_UpdateBanner> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// ── Hysteria promo banner ─────────────────────────────────────────────────────
+
+class _HysteriaBanner extends StatelessWidget {
+  final VoidCallback onTap;
+  const _HysteriaBanner({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              NexPalette.accent.withOpacity(0.14),
+              NexColors.connecting.withOpacity(0.08),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: NexPalette.accent.withOpacity(0.35)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: NexPalette.accent.withOpacity(0.15),
+              ),
+              child: const Icon(Icons.bolt_rounded, color: NexPalette.accent, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Hysteria 2 — быстрее в разы',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: NexPalette.accent),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Подключите скоростные серверы',
+                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios_rounded, size: 13, color: NexPalette.accentDark),
+          ],
+        ),
       ),
     );
   }

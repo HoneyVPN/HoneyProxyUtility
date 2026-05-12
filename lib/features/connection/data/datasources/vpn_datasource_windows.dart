@@ -64,12 +64,15 @@ class WindowsVpnDatasource {
     final stopPath = stopFile.path.replaceAll("'", "''");
 
     // PS1 script: sets env vars, starts sing-box, monitors stop file
+    final logFile = File('${tmp.path}/honeyvpn_sb.log');
+    final logPath = logFile.path.replaceAll("'", "''");
     await psFile.writeAsString([
       r"$env:ENABLE_DEPRECATED_LEGACY_DNS_SERVERS = 'true'",
       r"$env:ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER = 'true'",
       r"$env:ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM = 'true'",
       "Remove-Item -Path '$stopPath' -ErrorAction SilentlyContinue",
-      r"$proc = Start-Process -FilePath '" + sbPath + r"' -ArgumentList 'run','-c','" + cfgPath + r"' -WindowStyle Hidden -PassThru",
+      "Remove-Item -Path '$logPath' -ErrorAction SilentlyContinue",
+      r"$proc = Start-Process -FilePath '" + sbPath + r"' -ArgumentList @('run', '-c', '" + cfgPath + r"') -NoNewWindow -PassThru -RedirectStandardError '" + logPath + r"'",
       r"while (-not $proc.HasExited -and -not (Test-Path '" + stopPath + r"')) {",
       r"    Start-Sleep -Milliseconds 300",
       r"}",
@@ -103,10 +106,19 @@ class WindowsVpnDatasource {
     if (!started) {
       _tunStopFilePath = null;
       _connectedAt = null;
+      String sbDetail = '';
+      try {
+        final log = logFile.readAsStringSync().trim();
+        if (log.isNotEmpty) {
+          final lines = log.split('\n');
+          sbDetail = lines.lastWhere((l) => l.trim().isNotEmpty, orElse: () => '').trim();
+        }
+      } catch (_) {}
       throw Exception(
         'TUN режим не запустился.\nВозможные причины:\n'
         '• Запрос администратора был отклонён\n'
-        '• sing-box завершился с ошибкой',
+        '• sing-box завершился с ошибкой'
+        '${sbDetail.isNotEmpty ? "\n\n$sbDetail" : ""}',
       );
     }
 
