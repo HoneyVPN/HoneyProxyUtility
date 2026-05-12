@@ -60,9 +60,11 @@ class WindowsVpnDatasource {
     final logFile  = File('${tmp.path}/honeyvpn_sb.log');
     _tunStopFilePath = stopFile.path;
 
-    // Resolve proxy hostname to IP before TUN starts so we can exclude it
-    // from OS-level TUN routing (prevents routing loop).
+    // Resolve proxy hostname to IP before TUN starts.
     final proxyIps = await _resolveHost(proxy.host);
+    // Raw IP without CIDR for OS route command.
+    final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
+
     await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, excludeIps: proxyIps)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
@@ -71,12 +73,22 @@ class WindowsVpnDatasource {
     final stopPath = stopFile.path.replaceAll("'", "''");
     final logPath  = logFile.path.replaceAll("'", "''");
 
-    await psFile.writeAsString([
+    // Build PowerShell script.
+    // IMPORTANT: before starting sing-box we add an OS-level static route for the
+    // proxy server IP via the physical default gateway. This guarantees that
+    // sing-box's own outbound connection to the VPN server never enters the TUN
+    // interface, preventing the routing loop — regardless of sing-box version.
+    final psLines = <String>[
       r"$env:ENABLE_DEPRECATED_LEGACY_DNS_SERVERS = 'true'",
       r"$env:ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER = 'true'",
       r"$env:ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM = 'true'",
       "Remove-Item -Path '$stopPath' -ErrorAction SilentlyContinue",
       "Remove-Item -Path '$logPath' -ErrorAction SilentlyContinue",
+      // Find physical default gateway (before TUN routes are installed).
+      r"$gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | " +
+          r"Sort-Object { $_.RouteMetric + $_.ifMetric } | Select-Object -First 1).NextHop",
+      if (proxyIp != null)
+        r"if ($gw) { route add " + proxyIp + r" mask 255.255.255.255 $gw metric 1 2>&1 | Out-Null }",
       r"$proc = Start-Process -FilePath '" + sbPath +
           r"' -ArgumentList @('run', '-c', '" + cfgPath +
           r"') -NoNewWindow -PassThru -RedirectStandardError '" + logPath + r"'",
@@ -84,8 +96,12 @@ class WindowsVpnDatasource {
       r"    Start-Sleep -Milliseconds 300",
       r"}",
       r"if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }",
+      if (proxyIp != null)
+        r"route delete " + proxyIp + r" mask 255.255.255.255 2>&1 | Out-Null",
       "Remove-Item -Path '$stopPath' -ErrorAction SilentlyContinue",
-    ].join("\r\n"));
+    ];
+
+    await psFile.writeAsString(psLines.join("\r\n"));
 
     final psPath = psFile.path;
     await Process.run('powershell', [
