@@ -60,7 +60,10 @@ class WindowsVpnDatasource {
     final logFile  = File('${tmp.path}/honeyvpn_sb.log');
     _tunStopFilePath = stopFile.path;
 
-    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy)));
+    // Resolve proxy hostname to IP before TUN starts so we can exclude it
+    // from OS-level TUN routing (prevents routing loop).
+    final proxyIps = await _resolveHost(proxy.host);
+    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, excludeIps: proxyIps)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
     final sbPath   = sbExe.path.replaceAll("'", "''");
@@ -334,53 +337,65 @@ class WindowsVpnDatasource {
     'outbounds': [_buildOutbound(proxy), {'type': 'direct', 'tag': 'direct'}],
   };
 
-  Map<String, dynamic> _buildTunConfig(ParsedProxy proxy) {
-    final isIp = RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(proxy.host);
-    return {
-      'log': {'level': 'warn'},
-      'dns': {
-        'servers': [
-          {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
-          {'tag': 'local',  'address': 'local',          'detour': 'direct'},
-        ],
-        'rules': [
-          {'outbound': 'any', 'server': 'local'},
-        ],
-        'final': 'remote',
-      },
-      'experimental': {
-        'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-      },
-      'inbounds': [
-        {
-          'type': 'tun',
-          'tag': 'tun-in',
-          'address': ['172.19.0.1/30'],
-          'auto_route': true,
-          'strict_route': false,
-          'stack': 'mixed',
-        },
-      ],
-      'outbounds': [
-        _buildOutbound(proxy),
-        {'type': 'direct', 'tag': 'direct'},
-      ],
-      'route': {
-        'rules': [
-          // Bypass proxy server IP/domain to prevent TUN routing loop
-          if (isIp)
-            {'ip_cidr': ['${proxy.host}/32'], 'outbound': 'direct'}
-          else
-            {'domain': [proxy.host], 'outbound': 'direct'},
-          {'action': 'sniff'},
-          {'protocol': 'dns', 'action': 'hijack-dns'},
-          {'ip_is_private': true, 'outbound': 'direct'},
-        ],
-        'final': 'proxy',
-        'auto_detect_interface': true,
-      },
-    };
+  static Future<List<String>> _resolveHost(String host) async {
+    final isIp = RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(host);
+    if (isIp) return ['$host/32'];
+    try {
+      final addrs = await InternetAddress.lookup(host)
+          .timeout(const Duration(seconds: 5));
+      return addrs
+          .where((a) => a.type == InternetAddressType.IPv4)
+          .map((a) => '${a.address}/32')
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
+
+  Map<String, dynamic> _buildTunConfig(ParsedProxy proxy, {List<String> excludeIps = const []}) => {
+    'log': {'level': 'warn'},
+    'dns': {
+      'servers': [
+        {'tag': 'remote', 'address': 'udp://8.8.8.8',  'detour': 'proxy'},
+        {'tag': 'local',  'address': 'local',            'detour': 'direct'},
+      ],
+      'rules': [
+        {'outbound': 'any', 'server': 'local'},
+      ],
+      'final': 'remote',
+      'independent_cache': true,
+    },
+    'experimental': {
+      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+    },
+    'inbounds': [
+      {
+        'type': 'tun',
+        'tag': 'tun-in',
+        'address': ['198.18.0.1/16'],
+        'mtu': 9000,
+        'auto_route': true,
+        'strict_route': true,
+        'stack': 'mixed',
+        'sniff': true,
+        'sniff_override_destination': false,
+        if (excludeIps.isNotEmpty) 'route_exclude_address': excludeIps,
+      },
+    ],
+    'outbounds': [
+      _buildOutbound(proxy),
+      {'type': 'direct', 'tag': 'direct'},
+    ],
+    'route': {
+      'rules': [
+        {'action': 'sniff'},
+        {'protocol': 'dns', 'action': 'hijack-dns'},
+        {'ip_is_private': true, 'outbound': 'direct'},
+      ],
+      'final': 'proxy',
+      'auto_detect_interface': true,
+    },
+  };
 
   Map<String, dynamic> _buildOutbound(ParsedProxy proxy) => switch (proxy) {
     VlessConfig c => {
