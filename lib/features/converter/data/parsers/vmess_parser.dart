@@ -18,14 +18,14 @@ class VmessParser extends BaseProxyParser<VmessConfig> {
     if (encoded.isEmpty) throw const ParseException('Empty vmess payload');
 
     final padded = _addPadding(encoded);
-    late String jsonStr;
+    final String jsonStr;
     try {
       jsonStr = utf8.decode(base64.decode(padded));
     } catch (_) {
       throw ParseException('Invalid base64 in vmess link: $encoded');
     }
 
-    late Map<String, dynamic> m;
+    final Map<String, dynamic> m;
     try {
       m = json.decode(jsonStr) as Map<String, dynamic>;
     } catch (_) {

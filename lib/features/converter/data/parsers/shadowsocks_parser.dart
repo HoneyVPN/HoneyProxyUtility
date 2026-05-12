@@ -34,7 +34,8 @@ class ShadowsocksParser extends BaseProxyParser<ShadowsocksConfig> {
     final userInfoB64 = main.substring(0, atIdx);
     final hostPart = main.substring(atIdx + 1);
 
-    late String method, password;
+    String method;
+    String password;
     try {
       final decoded = utf8.decode(base64.decode(_addPadding(userInfoB64)));
       final colonIdx = decoded.indexOf(':');
@@ -75,7 +76,7 @@ class ShadowsocksParser extends BaseProxyParser<ShadowsocksConfig> {
   }
 
   ShadowsocksConfig _parseLegacy(String encoded, String name) {
-    late String decoded;
+    final String decoded;
     try {
       decoded = utf8.decode(base64.decode(_addPadding(encoded)));
     } catch (_) {

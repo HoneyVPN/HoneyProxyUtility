@@ -1,10 +1,13 @@
 import 'dart:convert';
 
+import 'package:logging/logging.dart';
 import 'package:yaml/yaml.dart';
 
 import 'base_parser.dart';
 import 'link_dispatcher.dart';
 import '../../domain/entities/parsed_proxy.dart';
+
+final _log = Logger('SubscriptionParser');
 
 enum SubscriptionFormat { v2ray, clash, singbox, unknown }
 
@@ -73,8 +76,8 @@ class SubscriptionParser {
         final proxy = _clashProxyToLink(item);
         if (proxy != null) results.add(proxy);
       }
-    } catch (_) {
-      // malformed YAML; return partial results
+    } catch (e) {
+      _log.warning('Malformed Clash YAML', e);
     }
     return results;
   }
@@ -163,7 +166,8 @@ class SubscriptionParser {
           );
         case 'wireguard':
           final peers = m['peers'] as YamlList?;
-          final peerMap = (peers?.isNotEmpty == true) ? peers!.first as YamlMap? : null;
+          final rawPeer = (peers != null && peers.isNotEmpty) ? peers.first : null;
+          final peerMap = rawPeer is YamlMap ? rawPeer : null;
           final endpoint = (peerMap?['server'] as String?) ?? '';
           final epPort = peerMap?['port'] is int ? peerMap!['port'] as int : 0;
           return WireGuardConfig(
@@ -196,8 +200,8 @@ class SubscriptionParser {
         final proxy = _singboxOutboundToProxy(item);
         if (proxy != null) results.add(proxy);
       }
-    } catch (_) {
-      // malformed JSON
+    } catch (e) {
+      _log.warning('Malformed sing-box JSON', e);
     }
     return results;
   }

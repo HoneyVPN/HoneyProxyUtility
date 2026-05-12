@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
+import 'package:logging/logging.dart';
 
 import '../../data/datasources/singbox_datasource.dart';
 import '../../domain/entities/connection_state.dart';
@@ -10,6 +11,8 @@ import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../servers/data/models/server_profile_model.dart';
 import '../../../settings/presentation/notifiers/settings_notifier.dart';
 import '../../../settings/data/models/app_settings.dart';
+
+final _log = Logger('ConnectionNotifier');
 
 final connectionNotifierProvider =
     NotifierProvider<ConnectionNotifier, NexConnectionState>(
@@ -40,9 +43,13 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
         throw Exception('Cannot parse server config');
       }
 
-      // Lazy init datasource with status callback wired to our state
-      _datasource ??= VpnDatasource(onStatusChanged: _onV2RayStatus);
-      await _datasource!.initialize();
+      try {
+        _datasource ??= VpnDatasource(onStatusChanged: _onV2RayStatus);
+        await _datasource!.initialize();
+      } catch (e) {
+        _datasource = null;
+        rethrow;
+      }
 
       final granted = await _datasource!.requestPermission();
       if (!granted) {
@@ -53,13 +60,13 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
         return;
       }
 
-      final settings = ref.read(settingsProvider).value;
-      final mode = settings?.connectionMode ?? ConnectionMode.tunnel;
+      final settings = ref.read(settingsProvider).value ?? const AppSettings();
+      final mode     = settings.connectionMode;
 
       state = state.copyWith(status: ConnectionStatus.connecting);
-      await _datasource!.start(proxy, mode: mode, settings: settings ?? const AppSettings());
-      // Status will update to connected via _onV2RayStatus callback
+      await _datasource!.start(proxy, mode: mode, settings: settings);
     } catch (e) {
+      _log.severe('Connection failed', e);
       state = state.copyWith(
         status: ConnectionStatus.error,
         errorMessage: e.toString(),
@@ -72,7 +79,9 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
     state = state.copyWith(status: ConnectionStatus.disconnecting);
     try {
       await _datasource?.stop();
-    } catch (_) {}
+    } catch (e) {
+      _log.warning('Error during disconnect', e);
+    }
     state = NexConnectionState.initial();
   }
 
@@ -103,12 +112,13 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
       if (rawLink != null && rawLink.isNotEmpty) {
         return const LinkDispatcher().dispatch(rawLink);
       }
-    } catch (_) {}
+    } catch (e) {
+      _log.warning('Failed to deserialize proxy config', e);
+    }
     return null;
   }
 
   static Duration _parseDuration(String s) {
-    // Format: "HH:MM:SS"
     final parts = s.split(':').map(int.tryParse).toList();
     if (parts.length == 3 && parts.every((p) => p != null)) {
       return Duration(hours: parts[0]!, minutes: parts[1]!, seconds: parts[2]!);

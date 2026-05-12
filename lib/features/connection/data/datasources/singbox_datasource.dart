@@ -3,11 +3,15 @@ import 'dart:io' show Platform, Socket;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
+import 'package:logging/logging.dart';
 
+import '../singbox/geo_data_manager.dart';
 import '../singbox/singbox_config_generator.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../settings/data/models/app_settings.dart';
 import 'vpn_datasource_windows.dart';
+
+final _log = Logger('VpnDatasource');
 
 class VpnDatasource {
   VpnDatasource({required void Function(V2RayStatus) onStatusChanged})
@@ -23,14 +27,14 @@ class VpnDatasource {
   static const _vpnChannel  = MethodChannel('ru.honeyvpn.proxy/vpn');
   static const _statsChannel = EventChannel('ru.honeyvpn.proxy/vpn_stats');
 
-  bool get _isAndroid => Platform.isAndroid || Platform.isIOS;
+  bool get _isMobile => Platform.isAndroid || Platform.isIOS;
 
   Future<void> initialize() async {
-    if (!_isAndroid) await _windows!.initialize();
+    if (!_isMobile) await _windows!.initialize();
   }
 
   Future<bool> requestPermission() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       final result = await _vpnChannel.invokeMethod<bool>('requestPermission');
       return result ?? false;
     }
@@ -42,8 +46,9 @@ class VpnDatasource {
     ConnectionMode mode = ConnectionMode.tunnel,
     AppSettings settings = const AppSettings(),
   }) async {
-    if (_isAndroid) {
-      final config = const SingboxConfigGenerator().generateForAndroid(proxy, settings);
+    if (_isMobile) {
+      final geoPaths = await GeoDataManager.ensureReady();
+      final config = SingboxConfigGenerator(geoPaths: geoPaths).generateForAndroid(proxy, settings);
       _listenToStats();
       await _vpnChannel.invokeMethod<void>('start', {'config': config});
     } else {
@@ -73,7 +78,10 @@ class VpnDatasource {
             _onStatus(V2RayStatus(state: 'DISCONNECTED'));
         }
       },
-      onError: (_) => _onStatus(V2RayStatus(state: 'DISCONNECTED')),
+      onError: (e) {
+        _log.warning('VPN stats stream error', e);
+        _onStatus(V2RayStatus(state: 'DISCONNECTED'));
+      },
     );
   }
 
@@ -85,7 +93,7 @@ class VpnDatasource {
   }
 
   Future<void> stop() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       await _statsSubscription?.cancel();
       _statsSubscription = null;
       await _vpnChannel.invokeMethod<void>('stop');
@@ -95,21 +103,22 @@ class VpnDatasource {
   }
 
   Future<int> ping(ParsedProxy proxy) async {
-    if (_isAndroid) {
-      try {
-        final sw = Stopwatch()..start();
-        final sock = await Socket.connect(
-          proxy.host, proxy.port,
-          timeout: const Duration(seconds: 5),
-        );
-        sw.stop();
-        sock.destroy();
-        return sw.elapsedMilliseconds;
-      } catch (_) {
-        return -1;
-      }
+    if (!_isMobile) return _windows!.ping(proxy);
+
+    Socket? sock;
+    try {
+      final sw = Stopwatch()..start();
+      sock = await Socket.connect(
+        proxy.host, proxy.port,
+        timeout: const Duration(seconds: 5),
+      );
+      sw.stop();
+      return sw.elapsedMilliseconds;
+    } catch (_) {
+      return -1;
+    } finally {
+      await sock?.close();
     }
-    return _windows!.ping(proxy);
   }
 
   void dispose() {

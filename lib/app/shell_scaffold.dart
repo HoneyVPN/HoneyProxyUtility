@@ -3,8 +3,11 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:logging/logging.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+final _log = Logger('ShellScaffold');
 
 class ShellScaffold extends StatefulWidget {
   final Widget child;
@@ -73,7 +76,9 @@ class _ShellScaffoldState extends State<ShellScaffold> {
           ],
         ),
       );
-    } catch (_) {}
+    } catch (e) {
+      _log.warning('Update check failed', e);
+    }
   }
 
   static bool _isNewer(String remote, String current) {

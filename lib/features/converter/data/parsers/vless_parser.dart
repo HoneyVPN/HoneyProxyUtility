@@ -19,12 +19,15 @@ class VlessParser extends BaseProxyParser<VlessConfig> {
     final host = uri.host;
     if (host.isEmpty) throw const ParseException('VLESS: missing host');
 
+    final uuid = uri.userInfo;
+    if (uuid.isEmpty) throw const ParseException('VLESS: missing UUID');
+
     final p = uri.queryParameters;
     return VlessConfig(
       name: BaseProxyParser.decodeUri(uri.fragment),
       host: host,
       port: uri.port == 0 ? 443 : uri.port,
-      uuid: uri.userInfo,
+      uuid: uuid,
       flow: p['flow'] ?? '',
       encryption: p['encryption'] ?? 'none',
       security: p['security'] ?? 'none',
