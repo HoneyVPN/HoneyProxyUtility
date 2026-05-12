@@ -117,7 +117,7 @@ class SingboxConfigGenerator {
     'uuid': c.uuid,
     if (c.flow.isNotEmpty) 'flow': c.flow,
     ..._tlsBlock(c.security, c.sni, c.fingerprint, pbk: c.publicKey, sid: c.shortId),
-    if (c.transport != 'tcp') 'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName),
+    if (c.transport != 'tcp') 'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName, c.xhttpMode, c.xPaddingBytes),
     'packet_encoding': 'xudp',
   };
 
@@ -254,7 +254,7 @@ class SingboxConfigGenerator {
     return {'tls': tls};
   }
 
-  Map<String, dynamic> _transport(String type, String path, String host, String serviceName) {
+  Map<String, dynamic> _transport(String type, String path, String host, String serviceName, [String mode = '', String xPadding = '']) {
     switch (type) {
       case 'ws':
       case 'websocket':
@@ -285,7 +285,8 @@ class SingboxConfigGenerator {
           'type': 'xhttp',
           if (path.isNotEmpty) 'path': path,
           if (host.isNotEmpty) 'host': host,
-          'x_padding_bytes': '100-1000',
+          if (mode.isNotEmpty) 'mode': mode,
+          'x_padding_bytes': xPadding.isNotEmpty ? xPadding : '100-1000',
         };
       case 'httpupgrade':
         return {
