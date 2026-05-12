@@ -74,7 +74,7 @@ class WindowsVpnDatasource {
     // Raw IP without CIDR for OS route command.
     final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
 
-    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, bindInterface: physicalIface)));
+    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, bindInterface: physicalIface, excludeAddresses: proxyIps)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
     final sbPath   = sbExe.path.replaceAll("'", "''");
@@ -95,7 +95,7 @@ class WindowsVpnDatasource {
       "Remove-Item -Path '$logPath' -ErrorAction SilentlyContinue",
       // Find physical default gateway (before TUN routes are installed).
       r"$gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | " +
-          r"Sort-Object { $_.RouteMetric + $_.ifMetric } | Select-Object -First 1).NextHop",
+          r"Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1).NextHop",
       if (proxyIp != null)
         r"if ($gw) { route add " + proxyIp + r" mask 255.255.255.255 $gw metric 1 2>&1 | Out-Null }",
       r"$proc = Start-Process -FilePath '" + sbPath +
@@ -112,11 +112,13 @@ class WindowsVpnDatasource {
 
     await psFile.writeAsString(psLines.join("\r\n"));
 
-    final psPath = psFile.path;
+    // Embed actual path via Dart interpolation.
+    // Use array-style ArgumentList so paths with spaces work correctly.
+    final psPathPs = psFile.path.replaceAll("'", "''");
     await Process.run('powershell', [
       '-NoProfile', '-NonInteractive', '-Command',
-      'Start-Process powershell -Verb RunAs -WindowStyle Hidden '
-          "-ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"\$psPath\"'",
+      "Start-Process powershell -Verb RunAs -WindowStyle Hidden "
+          "-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','$psPathPs')",
     ]);
 
     _connectedAt = DateTime.now();
@@ -407,7 +409,7 @@ class WindowsVpnDatasource {
       final r = await Process.run('powershell', [
         '-NoProfile', '-NonInteractive', '-Command',
         r"(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "
-        r"Sort-Object { $_.RouteMetric + $_.ifMetric } | Select-Object -First 1).InterfaceAlias",
+        r"Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1).InterfaceAlias",
       ]);
       final name = r.stdout.toString().trim();
       return name.isNotEmpty ? name : null;
@@ -434,10 +436,10 @@ class WindowsVpnDatasource {
   Map<String, dynamic> _buildTunConfig(
     ParsedProxy proxy, {
     String? bindInterface,
+    List<String> excludeAddresses = const [],
   }) {
     final proxyOutbound = _buildOutbound(proxy);
-    // Force the proxy outbound onto the physical NIC so sing-box's connection
-    // to the VPN server never enters the TUN interface (routing loop fix).
+    // Bind proxy outbound to physical NIC — backup routing loop prevention.
     if (bindInterface != null) proxyOutbound['bind_interface'] = bindInterface;
 
     return {
@@ -463,6 +465,10 @@ class WindowsVpnDatasource {
           'auto_route': true,
           'strict_route': false,
           'stack': 'mixed',
+          // Exclude proxy server IPs so sing-box never routes its own
+          // connections to the proxy through TUN (primary routing loop fix).
+          if (excludeAddresses.isNotEmpty)
+            'route_exclude_address': excludeAddresses,
         },
       ],
       'outbounds': [
