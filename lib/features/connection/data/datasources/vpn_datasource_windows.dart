@@ -452,7 +452,7 @@ class WindowsVpnDatasource {
   bool _hasTransport(String t) => t.isNotEmpty && t != 'tcp';
 
   Map<String, dynamic> _transport(
-    String type, String path, String host, String grpcService, [String mode = '', String xPadding = ''],
+    String type, String path, String host, String grpcService, [String mode = '', String xPadding = '']
   ) => switch (type) {
     'ws' => {
       'type': 'ws',
