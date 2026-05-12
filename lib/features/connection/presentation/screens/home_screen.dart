@@ -181,7 +181,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   }
 
                   // Hysteria promo under built-in subscription
-                  if (key.contains('sub.honeyvpn.ru') && subs.length == 1) {
+                  if (key.contains('sub.honeyvpn.ru') && subs.length == 1
+                      && !group.any((sv) => sv.protocol == 'hy2')) {
                     items.add(_HysteriaBanner(
                       onTap: () => context.push('/marketplace/honeyvpn'),
                     ));
