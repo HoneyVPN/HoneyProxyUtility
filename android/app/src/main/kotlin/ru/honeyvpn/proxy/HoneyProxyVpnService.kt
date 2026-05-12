@@ -6,10 +6,15 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
-import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class HoneyProxyVpnService : VpnService() {
 
@@ -19,6 +24,7 @@ class HoneyProxyVpnService : VpnService() {
         const val ACTION_STOP  = "ru.honeyvpn.proxy.STOP"
         const val CHANNEL_ID   = "honeyvpn_vpn"
         const val NOTIFICATION_ID = 1001
+        private const val CLASH_PORT = 9090
 
         @Volatile
         var isRunning = false
@@ -26,6 +32,9 @@ class HoneyProxyVpnService : VpnService() {
     }
 
     private var tunFd: ParcelFileDescriptor? = null
+    private var sbProcess: Process? = null
+    private var statsPollThread: Thread? = null
+    private var watchdogThread: Thread? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -56,27 +65,150 @@ class HoneyProxyVpnService : VpnService() {
         try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
 
         tunFd?.close()
-        tunFd = builder.establish() ?: run {
+        val fd = builder.establish() ?: run {
             Log.e(TAG, "Failed to establish VPN interface")
             stopSelf()
             return
         }
+        tunFd = fd
+
+        // Clear O_CLOEXEC so sing-box subprocess inherits the fd
+        try {
+            Os.fcntl(fd.fileDescriptor, OsConstants.F_SETFD, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "fcntl clear CLOEXEC failed: ${e.message}")
+        }
+        val rawFd = fd.fileDescriptor.fd
+        Log.d(TAG, "TUN established, fd=$rawFd")
 
         isRunning = true
-        updateNotification("Подключено")
-        Log.d(TAG, "VPN tunnel started, fd=${tunFd!!.fd}")
-        NativeBindings.onVpnStarted()
+        Thread { launchSingbox(configJson, rawFd) }.also { it.isDaemon = true; it.start() }
+    }
+
+    private fun launchSingbox(configJson: String, rawFd: Int) {
+        try {
+            // Inject real tun fd into config (replaces placeholder -1)
+            val cfg = JSONObject(configJson)
+            val inbounds = cfg.getJSONArray("inbounds")
+            for (i in 0 until inbounds.length()) {
+                val inb = inbounds.getJSONObject(i)
+                if (inb.optString("type") == "tun") {
+                    inb.put("fd", rawFd)
+                    break
+                }
+            }
+
+            val cfgFile = File(cacheDir, "sbconfig.json")
+            cfgFile.writeText(cfg.toString())
+
+            val sbPath = "${applicationInfo.nativeLibraryDir}/libsingbox.so"
+            if (!File(sbPath).exists()) {
+                Log.e(TAG, "sing-box binary not found: $sbPath")
+                notifyError("sing-box binary not found")
+                return
+            }
+
+            val proc = ProcessBuilder(sbPath, "run", "-c", cfgFile.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            sbProcess = proc
+
+            // Log sing-box stdout/stderr
+            Thread {
+                proc.inputStream.bufferedReader().forEachLine { Log.d(TAG, "sb: $it") }
+            }.also { it.isDaemon = true; it.start() }
+
+            // Watchdog: detect unexpected exit
+            watchdogThread = Thread {
+                val code = proc.waitFor()
+                if (sbProcess == proc) {
+                    Log.e(TAG, "sing-box exited unexpectedly: code=$code")
+                    sbProcess = null
+                    isRunning = false
+                    NativeBindings.onVpnStopped()
+                }
+            }.also { it.isDaemon = true; it.start() }
+
+            // Wait for sing-box to initialise its listeners
+            Thread.sleep(1500)
+            if (sbProcess == null) {
+                Log.e(TAG, "sing-box exited during startup")
+                return
+            }
+
+            updateNotification("Подключено")
+            NativeBindings.onVpnStarted()
+            startStatsPolling()
+
+        } catch (e: Exception) {
+            Log.e(TAG, "launchSingbox error: ${e.message}", e)
+            notifyError(e.message ?: "unknown error")
+        }
+    }
+
+    private fun startStatsPolling() {
+        statsPollThread = Thread {
+            var totalUp = 0L
+            var totalDown = 0L
+            val startMs = System.currentTimeMillis()
+
+            try {
+                val conn = URL("http://127.0.0.1:$CLASH_PORT/traffic")
+                    .openConnection() as HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 0  // streaming, no timeout
+                conn.connect()
+                conn.inputStream.bufferedReader().forEachLine { line ->
+                    if (!isRunning || sbProcess == null) return@forEachLine
+                    try {
+                        val json = JSONObject(line)
+                        val up = json.optLong("up")
+                        val down = json.optLong("down")
+                        totalUp += up
+                        totalDown += down
+                        val duration = (System.currentTimeMillis() - startMs) / 1000
+                        NativeBindings.pushStats(up, down, totalUp, totalDown, duration)
+                    } catch (_: Exception) {}
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Clash API unavailable, using fallback timer: ${e.message}")
+                val fbStart = System.currentTimeMillis()
+                while (isRunning && sbProcess != null) {
+                    try {
+                        val duration = (System.currentTimeMillis() - fbStart) / 1000
+                        NativeBindings.pushStats(0L, 0L, 0L, 0L, duration)
+                        Thread.sleep(1000)
+                    } catch (_: InterruptedException) { break }
+                }
+            }
+        }.also { it.isDaemon = true; it.start() }
     }
 
     private fun stopTunnel() {
         Log.d(TAG, "Stopping VPN tunnel")
         isRunning = false
+
+        sbProcess?.destroy()
+        sbProcess = null
+        statsPollThread?.interrupt()
+        statsPollThread = null
+        watchdogThread?.interrupt()
+        watchdogThread = null
+
         try {
             tunFd?.close()
             tunFd = null
         } catch (e: Exception) {
-            Log.e(TAG, "Error stopping tunnel: ${e.message}")
+            Log.e(TAG, "Error closing TUN: ${e.message}")
         }
+
+        NativeBindings.onVpnStopped()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun notifyError(msg: String) {
+        isRunning = false
         NativeBindings.onVpnStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -100,7 +232,8 @@ class HoneyProxyVpnService : VpnService() {
     }
 
     private fun updateNotification(status: String) {
-        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification(status))
+        getSystemService(NotificationManager::class.java)
+            ?.notify(NOTIFICATION_ID, buildNotification(status))
     }
 
     private fun createNotificationChannel() {

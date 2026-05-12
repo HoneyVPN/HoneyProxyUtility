@@ -57,7 +57,7 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
       final mode = settings?.connectionMode ?? ConnectionMode.tunnel;
 
       state = state.copyWith(status: ConnectionStatus.connecting);
-      await _datasource!.start(proxy, mode: mode);
+      await _datasource!.start(proxy, mode: mode, settings: settings ?? const AppSettings());
       // Status will update to connected via _onV2RayStatus callback
     } catch (e) {
       state = state.copyWith(
