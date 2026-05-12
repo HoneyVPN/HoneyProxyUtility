@@ -457,6 +457,7 @@ class WindowsVpnDatasource {
           'path': path.isEmpty ? '/' : path,
           if (host.isNotEmpty) 'host': host,
           if (mode.isNotEmpty) 'mode': mode,
+          'x_padding_bytes': '100-1000',
         },
         _ => {'type': type},
       };

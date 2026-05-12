@@ -108,11 +108,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: _ErrorBanner(message: conn.errorMessage!),
             ),
 
-          // Fixed: Hysteria promo (only when user has the single built-in subscription)
-          if (subs.length == 1 && subs.first.url.contains('sub.honeyvpn.ru'))
-            _HysteriaBanner(onTap: () => context.go('/marketplace')),
-
-          // Fixed: update banner
+                    // Fixed: update banner
           if (!_updateDismissed && update != null && update.hasUpdate)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -172,6 +168,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         onTapDetail: () => context.push('/servers/${sv.id}'),
                       ));
                     }
+                  }
+
+                  // Hysteria promo under built-in subscription
+                  if (key.contains('sub.honeyvpn.ru') && subs.length == 1) {
+                    items.add(_HysteriaBanner(
+                      onTap: () => context.push('/marketplace/honeyvpn'),
+                    ));
                   }
 
                   if (gi < keys.length - 1) {

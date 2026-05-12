@@ -285,6 +285,7 @@ class SingboxConfigGenerator {
           'type': 'xhttp',
           if (path.isNotEmpty) 'path': path,
           if (host.isNotEmpty) 'host': host,
+          'x_padding_bytes': '100-1000',
         };
       case 'httpupgrade':
         return {
