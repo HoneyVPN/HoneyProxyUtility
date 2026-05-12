@@ -150,7 +150,11 @@ class _ProviderDetailView extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: provider.features
-                        .map((f) => Chip(label: Text(f, style: const TextStyle(fontSize: 12))))
+                        .map((f) => Chip(
+                          label: Text(f, style: TextStyle(fontSize: 12, color: cs.onSurface)),
+                          backgroundColor: cs.surfaceContainerHighest,
+                          side: BorderSide(color: cs.outlineVariant.withOpacity(0.5)),
+                        ))
                         .toList(),
                   ),
                 ],
@@ -253,19 +257,6 @@ class _ProviderDetailView extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 8),
-
-          // Secondary CTA — import subscription
-          if (provider.supportsImport && provider.subscriptionUrlTemplate != null)
-            OutlinedButton.icon(
-              onPressed: () => context.push(
-                '/converter?initialText=${Uri.encodeComponent(provider.subscriptionUrlTemplate!)}',
-              ),
-              icon: const Icon(Icons.download_rounded, size: 18),
-              label: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
-                child: Text('Подключить бесплатные серверы', style: TextStyle(fontSize: 14)),
-              ),
             ),
 
           const SizedBox(height: 16),

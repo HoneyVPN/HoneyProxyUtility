@@ -331,17 +331,20 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
     ref.read(serversNotifierProvider.notifier).addFromProxy(p);
     final router = GoRouter.of(ctx);
     final messenger = ScaffoldMessenger.of(ctx);
+    final cs = Theme.of(ctx).colorScheme;
     messenger.showSnackBar(
       SnackBar(
-        content: Text('${p.displayName} added'),
+        content: Text('${p.displayName} added',
+            style: TextStyle(color: cs.onInverseSurface)),
+        backgroundColor: cs.inverseSurface,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 3),
         action: SnackBarAction(
           label: 'Servers',
+          textColor: cs.inversePrimary,
           onPressed: () {
             messenger.hideCurrentSnackBar();
             router.go('/');
-          },
         ),
       ),
     );
@@ -356,17 +359,20 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
     }
     final router = GoRouter.of(ctx);
     final messenger = ScaffoldMessenger.of(ctx);
+    final cs = Theme.of(ctx).colorScheme;
     messenger.showSnackBar(
       SnackBar(
-        content: Text('${proxies.length} servers added'),
+        content: Text('${proxies.length} servers added',
+            style: TextStyle(color: cs.onInverseSurface)),
+        backgroundColor: cs.inverseSurface,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 3),
         action: SnackBarAction(
           label: 'Servers',
+          textColor: cs.inversePrimary,
           onPressed: () {
             messenger.hideCurrentSnackBar();
             router.go('/');
-          },
         ),
       ),
     );
