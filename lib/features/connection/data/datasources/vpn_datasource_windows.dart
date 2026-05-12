@@ -334,45 +334,53 @@ class WindowsVpnDatasource {
     'outbounds': [_buildOutbound(proxy), {'type': 'direct', 'tag': 'direct'}],
   };
 
-  Map<String, dynamic> _buildTunConfig(ParsedProxy proxy) => {
-    'log': {'level': 'warn'},
-    'dns': {
-      'servers': [
-        {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
-        {'tag': 'local',  'address': 'local',          'detour': 'direct'},
-      ],
-      'rules': [
-        {'outbound': 'any', 'server': 'local'},
-      ],
-      'final': 'remote',
-    },
-    'experimental': {
-      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-    },
-    'inbounds': [
-      {
-        'type': 'tun',
-        'tag': 'tun-in',
-        'address': ['172.19.0.1/30'],
-        'auto_route': true,
-        'strict_route': false,
-        'stack': 'mixed',
+  Map<String, dynamic> _buildTunConfig(ParsedProxy proxy) {
+    final isIp = RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(proxy.host);
+    return {
+      'log': {'level': 'warn'},
+      'dns': {
+        'servers': [
+          {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
+          {'tag': 'local',  'address': 'local',          'detour': 'direct'},
+        ],
+        'rules': [
+          {'outbound': 'any', 'server': 'local'},
+        ],
+        'final': 'remote',
       },
-    ],
-    'outbounds': [
-      _buildOutbound(proxy),
-      {'type': 'direct', 'tag': 'direct'},
-    ],
-    'route': {
-      'rules': [
-        {'action': 'sniff'},
-        {'protocol': 'dns', 'action': 'hijack-dns'},
-        {'ip_is_private': true, 'outbound': 'direct'},
+      'experimental': {
+        'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+      },
+      'inbounds': [
+        {
+          'type': 'tun',
+          'tag': 'tun-in',
+          'address': ['172.19.0.1/30'],
+          'auto_route': true,
+          'strict_route': false,
+          'stack': 'mixed',
+        },
       ],
-      'final': 'proxy',
-      'auto_detect_interface': true,
-    },
-  };
+      'outbounds': [
+        _buildOutbound(proxy),
+        {'type': 'direct', 'tag': 'direct'},
+      ],
+      'route': {
+        'rules': [
+          // Bypass proxy server IP/domain to prevent TUN routing loop
+          if (isIp)
+            {'ip_cidr': ['${proxy.host}/32'], 'outbound': 'direct'}
+          else
+            {'domain': [proxy.host], 'outbound': 'direct'},
+          {'action': 'sniff'},
+          {'protocol': 'dns', 'action': 'hijack-dns'},
+          {'ip_is_private': true, 'outbound': 'direct'},
+        ],
+        'final': 'proxy',
+        'auto_detect_interface': true,
+      },
+    };
+  }
 
   Map<String, dynamic> _buildOutbound(ParsedProxy proxy) => switch (proxy) {
     VlessConfig c => {
