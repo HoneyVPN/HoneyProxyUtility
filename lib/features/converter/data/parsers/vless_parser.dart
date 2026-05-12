@@ -38,6 +38,7 @@ class VlessParser extends BaseProxyParser<VlessConfig> {
       transportHost: p['host'] ?? '',
       grpcServiceName: p['serviceName'] ?? '',
       xhttpMode: p['mode'] ?? '',
+      xPaddingBytes: p['xPaddingBytes'] ?? p['x_padding_bytes'] ?? p['paddingBytes'] ?? '',
     );
   }
 }

@@ -363,7 +363,7 @@ class WindowsVpnDatasource {
       if (c.flow.isNotEmpty) 'flow': c.flow,
       'tls': _vlessTls(c),
       if (_hasTransport(c.transport))
-        'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName, c.xhttpMode),
+        'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName, c.xhttpMode, c.xPaddingBytes),
     },
     VmessConfig c => {
       'type': 'vmess',
@@ -434,7 +434,7 @@ class WindowsVpnDatasource {
   bool _hasTransport(String t) => t.isNotEmpty && t != 'tcp';
 
   Map<String, dynamic> _transport(
-      String type, String path, String host, String grpcService, [String mode = '']) =>
+      String type, String path, String host, String grpcService, [String mode = '', String xPadding = '']) =>
       switch (type) {
         'ws' => {
           'type': 'ws',
@@ -457,7 +457,7 @@ class WindowsVpnDatasource {
           'path': path.isEmpty ? '/' : path,
           if (host.isNotEmpty) 'host': host,
           if (mode.isNotEmpty) 'mode': mode,
-          'x_padding_bytes': '100-1000',
+          'x_padding_bytes': xPadding.isNotEmpty ? xPadding : '100-1000',
         },
         _ => {'type': type},
       };
