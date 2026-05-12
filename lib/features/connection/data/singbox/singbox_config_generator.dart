@@ -282,7 +282,7 @@ class SingboxConfigGenerator {
         };
       case 'xhttp':
         return {
-          'type': 'splithttp',
+          'type': 'xhttp',
           if (path.isNotEmpty) 'path': path,
           if (host.isNotEmpty) 'host': host,
         };

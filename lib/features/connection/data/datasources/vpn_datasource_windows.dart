@@ -31,15 +31,7 @@ class WindowsVpnDatasource {
     await stop();
     _tunMode = mode == ConnectionMode.tunnel;
 
-    // xHTTP is not supported by official sing-box — show clear error
-    if (proxy is VlessConfig && proxy.transport == 'xhttp') {
-      throw Exception(
-        'xHTTP (SplitHTTP) транспорт не поддерживается в Windows-версии.\n'
-        'Используйте сервер с Reality или WebSocket.',
-      );
-    }
-
-    final exeDir = File(Platform.resolvedExecutable).parent;
+       final exeDir = File(Platform.resolvedExecutable).parent;
     final sbExe  = File('${exeDir.path}/sing-box.exe');
     if (!sbExe.existsSync()) {
       throw Exception('sing-box.exe not found at ${sbExe.path}');
@@ -447,6 +439,12 @@ class WindowsVpnDatasource {
           'type': 'httpupgrade',
           'path': path.isEmpty ? '/' : path,
           if (host.isNotEmpty) 'host': host,
+        },
+        'xhttp' => {
+          'type': 'xhttp',
+          'path': path.isEmpty ? '/' : path,
+          if (host.isNotEmpty) 'host': host,
+          if (mode.isNotEmpty) 'mode': mode,
         },
         _ => {'type': type},
       };
