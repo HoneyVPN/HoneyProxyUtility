@@ -17,11 +17,8 @@ final serversNotifierProvider =
 
 final selectedServerProvider = StateProvider<ServerProfileModel?>((ref) {
   final servers = ref.watch(serversNotifierProvider).value ?? [];
-  try {
-    return servers.firstWhere((s) => s.isSelected);
-  } catch (_) {
-    return servers.isEmpty ? null : servers.first;
-  }
+  if (servers.isEmpty) return null;
+  return servers.firstWhere((s) => s.isSelected, orElse: () => servers.first);
 });
 
 class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
@@ -120,24 +117,30 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
 
   Future<double> testLatency(ServerProfileModel server) async {
     final pingPort = (server.protocol == 'hy2' || server.protocol == 'tuic') ? 443 : server.port;
+    Socket? sock;
     try {
       final sw = Stopwatch()..start();
-      final sock = await Socket.connect(server.host, pingPort,
+      sock = await Socket.connect(server.host, pingPort,
           timeout: const Duration(seconds: 5));
       sw.stop();
-      sock.destroy();
       final ms = sw.elapsedMilliseconds.toDouble();
       await updateLatency(server.id, ms);
       return ms;
     } catch (_) {
       await updateLatency(server.id, -1);
       return -1;
+    } finally {
+      await sock?.close();
     }
   }
 
   Future<void> testAllLatency() async {
-    final servers = state.value ?? [];
-    await Future.wait(servers.map(testLatency));
+    final servers = List<ServerProfileModel>.of(state.value ?? []);
+    await Future.wait(servers.map((s) async {
+      try {
+        await testLatency(s);
+      } catch (_) {}
+    }));
   }
 
   Future<void> replaceSubscription(String subscriptionId, List<ParsedProxy> proxies) async {

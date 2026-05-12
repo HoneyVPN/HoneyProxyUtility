@@ -4,7 +4,11 @@ import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../settings/data/models/app_settings.dart';
 
 class SingboxConfigGenerator {
-  const SingboxConfigGenerator();
+  /// [geoPaths] — map of filename → absolute path from [GeoDataManager.ensureReady].
+  /// If null or a key is missing, falls back to remote download.
+  const SingboxConfigGenerator({this.geoPaths});
+
+  final Map<String, String>? geoPaths;
 
   String generate(ParsedProxy proxy, AppSettings settings) {
     final proxyOut = _outbound(proxy);
@@ -47,14 +51,14 @@ class SingboxConfigGenerator {
       DnsPreset.cloudflare => 'tls://1.1.1.1',
       DnsPreset.google => 'tls://8.8.8.8',
       DnsPreset.adguard => 'tls://94.140.14.14',
-      DnsPreset.custom => s.customDnsUrl.isNotEmpty ? s.customDnsUrl : 'tls://1.1.1.1',
+      DnsPreset.custom => _isValidDnsUrl(s.customDnsUrl) ? s.customDnsUrl : 'tls://1.1.1.1',
     };
 
     final rules = <Map<String, dynamic>>[
       {'outbound': 'any', 'server': 'local-dns'},
     ];
     if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
-      rules.add({'rule_set': 'geosite-cn', 'server': 'local-dns'});
+      rules.add({'rule_set': 'ru', 'server': 'local-dns'});
     }
 
     return {
@@ -306,6 +310,38 @@ class SingboxConfigGenerator {
     }
   }
 
+  /// Builds a local rule-set entry if [geoPaths] has the file,
+  /// otherwise falls back to a remote URL from runetfreedom releases.
+  Map<String, dynamic> _ruleSet(String tag, String filename) {
+    final localPath = geoPaths?[filename];
+    if (localPath != null) {
+      return {'type': 'local', 'tag': tag, 'format': 'binary', 'path': localPath};
+    }
+    const base = 'https://github.com/runetfreedom/russia-blocked-geoip/raw/release/srs';
+    const adBase = 'https://github.com/SagerNet/sing-geosite/raw/rule-set';
+    final url = filename == 'geosite-category-ads-all.srs'
+        ? '$adBase/$filename'
+        : '$base/$filename';
+    return {
+      'type': 'remote',
+      'tag': tag,
+      'format': 'binary',
+      'url': url,
+      'download_detour': 'direct',
+      'update_interval': '7d',
+    };
+  }
+
+  static bool _isValidDnsUrl(String url) {
+    if (url.isEmpty) return false;
+    try {
+      final uri = Uri.parse(url);
+      return uri.hasScheme && uri.host.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   String _ipStrategy(IpType t) => switch (t) {
     IpType.ipv4 => 'ipv4_only',
     IpType.ipv6 => 'ipv6_only',
@@ -326,38 +362,23 @@ class SingboxConfigGenerator {
     final ruleSets = <Map<String, dynamic>>[];
 
     if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
-      rules.add({'rule_set': 'geosite-cn', 'outbound': 'direct'});
-      rules.add({'rule_set': 'geoip-cn', 'outbound': 'direct'});
+      // Blocked sites → proxy (bypass Roskomnadzor restrictions)
+      rules.add({'rule_set': 'ru-blocked',           'outbound': 'proxy'});
+      rules.add({'rule_set': 'ru-blocked-community', 'outbound': 'proxy'});
+      rules.add({'rule_set': 're-filter',            'outbound': 'proxy'});
+      // Russian IPs → direct
+      rules.add({'rule_set': 'ru', 'outbound': 'direct'});
       ruleSets.addAll([
-        {
-          'type': 'remote',
-          'tag': 'geosite-cn',
-          'format': 'binary',
-          'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs',
-          'download_detour': 'direct',
-          'update_interval': '7d',
-        },
-        {
-          'type': 'remote',
-          'tag': 'geoip-cn',
-          'format': 'binary',
-          'url': 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
-          'download_detour': 'direct',
-          'update_interval': '7d',
-        },
+        _ruleSet('ru-blocked',           'ru-blocked.srs'),
+        _ruleSet('ru-blocked-community', 'ru-blocked-community.srs'),
+        _ruleSet('re-filter',            're-filter.srs'),
+        _ruleSet('ru',                   'ru.srs'),
       ]);
     }
 
     if (s.blockAds) {
       rules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
-      ruleSets.add({
-        'type': 'remote',
-        'tag': 'geosite-category-ads-all',
-        'format': 'binary',
-        'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs',
-        'download_detour': 'direct',
-        'update_interval': '7d',
-      });
+      ruleSets.add(_ruleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
     }
 
     return {
@@ -422,38 +443,21 @@ class SingboxConfigGenerator {
     final ruleSets = <Map<String, dynamic>>[];
 
     if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
-      rules.add({'rule_set': 'geosite-cn', 'outbound': 'direct'});
-      rules.add({'rule_set': 'geoip-cn', 'outbound': 'direct'});
+      rules.add({'rule_set': 'ru-blocked',           'outbound': 'proxy'});
+      rules.add({'rule_set': 'ru-blocked-community', 'outbound': 'proxy'});
+      rules.add({'rule_set': 're-filter',            'outbound': 'proxy'});
+      rules.add({'rule_set': 'ru', 'outbound': 'direct'});
       ruleSets.addAll([
-        {
-          'type': 'remote',
-          'tag': 'geosite-cn',
-          'format': 'binary',
-          'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs',
-          'download_detour': 'direct',
-          'update_interval': '7d',
-        },
-        {
-          'type': 'remote',
-          'tag': 'geoip-cn',
-          'format': 'binary',
-          'url': 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
-          'download_detour': 'direct',
-          'update_interval': '7d',
-        },
+        _ruleSet('ru-blocked',           'ru-blocked.srs'),
+        _ruleSet('ru-blocked-community', 'ru-blocked-community.srs'),
+        _ruleSet('re-filter',            're-filter.srs'),
+        _ruleSet('ru',                   'ru.srs'),
       ]);
     }
 
     if (s.blockAds) {
       rules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
-      ruleSets.add({
-        'type': 'remote',
-        'tag': 'geosite-category-ads-all',
-        'format': 'binary',
-        'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs',
-        'download_detour': 'direct',
-        'update_interval': '7d',
-      });
+      ruleSets.add(_ruleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
     }
 
     return {

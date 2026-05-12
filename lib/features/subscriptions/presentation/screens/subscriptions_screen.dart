@@ -5,7 +5,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+final _log = Logger('SubscriptionsNotifier');
 
 import '../../data/models/subscription_model.dart';
 import '../../../converter/data/parsers/subscription_parser.dart';
@@ -87,7 +90,8 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
     if (raw == null) return [];
     try {
       return SubscriptionModel.listFromJson(raw);
-    } catch (_) {
+    } catch (e) {
+      _log.warning('Failed to load subscriptions from storage', e);
       return [];
     }
   }
@@ -117,7 +121,9 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
 
   Future<void> delete(int id) async {
     final current = state.value?.subs ?? [];
-    final sub = current.firstWhere((s) => s.id == id);
+    final idx = current.indexWhere((s) => s.id == id);
+    if (idx < 0) return;
+    final sub = current[idx];
     final updated = current.where((s) => s.id != id).toList();
     await _save(updated);
     state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(subs: updated));
@@ -157,14 +163,15 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
   }
 
   Future<void> refreshAll() async {
-    final subs = state.value?.subs ?? [];
+    final subs = List.of(state.value?.subs ?? []);
     await Future.wait(subs.map(_doRefresh));
   }
 
   Future<void> refresh(int id) async {
     final subs = state.value?.subs ?? [];
-    final sub = subs.firstWhere((s) => s.id == id);
-    await _doRefresh(sub);
+    final idx = subs.indexWhere((s) => s.id == id);
+    if (idx < 0) return;
+    await _doRefresh(subs[idx]);
   }
 
   // ── Core refresh logic ────────────────────────────────────────────────────
@@ -228,10 +235,10 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
 
       final newRefreshing = {...(state.value?.refreshing ?? {})}..remove(sub.id);
       state = AsyncData(SubscriptionsState(subs: updated, refreshing: newRefreshing));
-    } catch (_) {
+    } catch (e) {
+      _log.warning('Failed to refresh subscription ${sub.url}', e);
       final newRefreshing = {...(state.value?.refreshing ?? {})}..remove(sub.id);
       state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(refreshing: newRefreshing));
-      // Silently swallow: caller is often build() and cannot handle exceptions
     }
   }
 }

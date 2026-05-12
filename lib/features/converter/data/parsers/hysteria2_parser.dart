@@ -15,9 +15,10 @@ class Hysteria2Parser extends BaseProxyParser<Hysteria2Config> {
   Hysteria2Config parse(String rawLink) {
     // Hysteria2 supports port hopping: hy2://auth@host:443,5000-6000?...
     // Strip port hopping range before URI parsing so Uri.parse doesn't fail
-    var cleaned = rawLink
-        .replaceFirst('hysteria2://', 'https://')
-        .replaceFirst('hy2://', 'https://');
+    var cleaned = rawLink.replaceFirst(
+      RegExp(r'^(hysteria2|hy2)://'),
+      'https://',
+    );
 
     // Extract port hopping if present: host:port,range or host:port-range
     String? portHopping;
