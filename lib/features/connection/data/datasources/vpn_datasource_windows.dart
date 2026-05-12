@@ -64,12 +64,17 @@ class WindowsVpnDatasource {
     final logFile  = File('${tmp.path}/honeyvpn_sb.log');
     _tunStopFilePath = stopFile.path;
 
+    // Detect physical interface before TUN hijacks all routes.
+    // This name is injected into the proxy outbound as bind_interface so
+    // sing-box sends traffic to the VPN server via the real NIC, not TUN.
+    final physicalIface = await _detectPhysicalInterface();
+
     // Resolve proxy hostname to IP before TUN starts.
     final proxyIps = await _resolveHost(proxy.host);
     // Raw IP without CIDR for OS route command.
     final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
 
-    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, settings: settings)));
+    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, bindInterface: physicalIface)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
     final sbPath   = sbExe.path.replaceAll("'", "''");
@@ -397,6 +402,20 @@ class WindowsVpnDatasource {
     };
   }
 
+  static Future<String?> _detectPhysicalInterface() async {
+    try {
+      final r = await Process.run('powershell', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        r"(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "
+        r"Sort-Object { $_.RouteMetric + $_.ifMetric } | Select-Object -First 1).InterfaceAlias",
+      ]);
+      final name = r.stdout.toString().trim();
+      return name.isNotEmpty ? name : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<List<String>> _resolveHost(String host) async {
     final isIp = RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(host);
     if (isIp) return ['$host/32'];
@@ -414,9 +433,13 @@ class WindowsVpnDatasource {
 
   Map<String, dynamic> _buildTunConfig(
     ParsedProxy proxy, {
-    AppSettings settings = const AppSettings(),
-    List<String> excludeIps = const [],
+    String? bindInterface,
   }) {
+    final proxyOutbound = _buildOutbound(proxy);
+    // Force the proxy outbound onto the physical NIC so sing-box's connection
+    // to the VPN server never enters the TUN interface (routing loop fix).
+    if (bindInterface != null) proxyOutbound['bind_interface'] = bindInterface;
+
     return {
       'log': {'level': 'warn'},
       'dns': {
@@ -443,7 +466,7 @@ class WindowsVpnDatasource {
         },
       ],
       'outbounds': [
-        _buildOutbound(proxy),
+        proxyOutbound,
         {'type': 'direct', 'tag': 'direct'},
       ],
       'route': {

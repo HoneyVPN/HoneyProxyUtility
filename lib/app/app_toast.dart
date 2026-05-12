@@ -25,13 +25,11 @@ class AppToast {
     final overlay = Navigator.of(context, rootNavigator: true).overlay;
     if (overlay == null) return;
 
-    // Capture theme colors here — OverlayEntry's builder context may not
-    // have the app theme in its widget tree.
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final bg  = dark ? NexPalette.darkSurface2  : NexPalette.lightOnSurface;
-    final fg  = dark ? NexPalette.darkOnSurface : NexPalette.lightSurface;
-    final act = dark ? NexPalette.accent        : NexPalette.accentDark;
+    // Toast always uses dark surface — works on both light and dark themes,
+    // avoids theme detection issues with OverlayEntry context.
+    const bg  = NexPalette.darkSurface2;
+    const fg  = NexPalette.darkOnSurface;
+    const act = NexPalette.accent;
 
     _entry = OverlayEntry(
       builder: (_) => _ToastOverlay(
