@@ -95,17 +95,20 @@ class WindowsVpnDatasource {
     _totalUp = 0;
     _totalDown = 0;
 
-    await Future.delayed(const Duration(milliseconds: 2500));
-
+    // Poll Clash API until sing-box is ready (UAC + PowerShell startup can take 10+ s).
     bool started = false;
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
-    try {
-      final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/'));
-      await req.close();
-      started = true;
-    } catch (_) {
-    } finally {
-      client.close();
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    while (!started && DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 800));
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+      try {
+        final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/'));
+        await req.close();
+        started = true;
+      } catch (_) {
+      } finally {
+        client.close();
+      }
     }
 
     if (!started) {
