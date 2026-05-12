@@ -25,11 +25,22 @@ class AppToast {
     final overlay = Navigator.of(context, rootNavigator: true).overlay;
     if (overlay == null) return;
 
+    // Capture theme colors here — OverlayEntry's builder context may not
+    // have the app theme in its widget tree.
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final bg  = dark ? NexPalette.darkSurface2  : NexPalette.lightOnSurface;
+    final fg  = dark ? NexPalette.darkOnSurface : NexPalette.lightSurface;
+    final act = dark ? NexPalette.accent        : NexPalette.accentDark;
+
     _entry = OverlayEntry(
       builder: (_) => _ToastOverlay(
         message: message,
         actionLabel: actionLabel,
         onAction: () { _dismiss(); onAction?.call(); },
+        bg: bg,
+        fg: fg,
+        act: act,
       ),
     );
 
@@ -49,15 +60,21 @@ class _ToastOverlay extends StatelessWidget {
   final String message;
   final String? actionLabel;
   final VoidCallback? onAction;
+  final Color bg;
+  final Color fg;
+  final Color act;
 
-  const _ToastOverlay({required this.message, this.actionLabel, this.onAction});
+  const _ToastOverlay({
+    required this.message,
+    required this.bg,
+    required this.fg,
+    required this.act,
+    this.actionLabel,
+    this.onAction,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final bg   = dark ? NexPalette.darkSurface2   : NexPalette.lightOnSurface;
-    final fg   = dark ? NexPalette.darkOnSurface  : NexPalette.lightSurface;
-    final act  = dark ? NexPalette.accent         : NexPalette.accentDark;
 
     // Position above the bottom nav bar (nav ~76px + 12px padding)
     return Positioned(

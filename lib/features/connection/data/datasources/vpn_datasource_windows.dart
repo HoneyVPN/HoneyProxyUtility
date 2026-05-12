@@ -69,7 +69,7 @@ class WindowsVpnDatasource {
     // Raw IP without CIDR for OS route command.
     final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
 
-    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, settings: settings, excludeIps: proxyIps)));
+    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, settings: settings)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
     final sbPath   = sbExe.path.replaceAll("'", "''");
@@ -380,51 +380,17 @@ class WindowsVpnDatasource {
     AppSettings settings = const AppSettings(),
     List<String> excludeIps = const [],
   }) {
-    final remoteDns = _remoteDns(settings);
-    final dnsRules = <Map<String, dynamic>>[
-      {'outbound': 'any', 'server': 'local'},
-    ];
-    if (settings.routingMode == RoutingMode.bypassRU || settings.routingMode == RoutingMode.rules) {
-      dnsRules.add({'rule_set': 'ru', 'server': 'local'});
-    }
-
-    final routeRules = <Map<String, dynamic>>[
-      {'action': 'sniff'},
-      if (settings.fragmentationEnabled) {'action': 'tls_fragment'},
-      {'protocol': 'dns', 'action': 'hijack-dns'},
-      {'ip_is_private': true, 'outbound': 'direct'},
-    ];
-    final ruleSets = <Map<String, dynamic>>[];
-
-    if (settings.routingMode == RoutingMode.bypassRU || settings.routingMode == RoutingMode.rules) {
-      routeRules.addAll([
-        {'rule_set': 'ru-blocked',           'outbound': 'proxy'},
-        {'rule_set': 'ru-blocked-community', 'outbound': 'proxy'},
-        {'rule_set': 're-filter',            'outbound': 'proxy'},
-        {'rule_set': 'ru',                   'outbound': 'direct'},
-      ]);
-      ruleSets.addAll([
-        _remoteRuleSet('ru-blocked',           'ru-blocked.srs'),
-        _remoteRuleSet('ru-blocked-community', 'ru-blocked-community.srs'),
-        _remoteRuleSet('re-filter',            're-filter.srs'),
-        _remoteRuleSet('ru',                   'ru.srs'),
-      ]);
-    }
-    if (settings.blockAds) {
-      routeRules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
-      ruleSets.add(_remoteRuleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
-    }
-
     return {
-      'log': {'level': settings.logLevel.name},
+      'log': {'level': 'warn'},
       'dns': {
         'servers': [
-          {'tag': 'remote', 'address': remoteDns, 'detour': 'proxy'},
-          {'tag': 'local',  'address': 'local',   'detour': 'direct'},
+          {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
+          {'tag': 'local',  'address': 'local',          'detour': 'direct'},
         ],
-        'rules': dnsRules,
+        'rules': [
+          {'outbound': 'any', 'server': 'local'},
+        ],
         'final': 'remote',
-        'independent_cache': true,
       },
       'experimental': {
         'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
@@ -434,23 +400,21 @@ class WindowsVpnDatasource {
           'type': 'tun',
           'tag': 'tun-in',
           'address': ['198.18.0.1/16'],
-          'mtu': 9000,
           'auto_route': true,
           'strict_route': false,
-          'stack': settings.tunStack.name,
-          'sniff': true,
-          'sniff_override_destination': false,
-          if (excludeIps.isNotEmpty) 'route_exclude_address': excludeIps,
+          'stack': 'mixed',
         },
       ],
       'outbounds': [
         _buildOutbound(proxy),
         {'type': 'direct', 'tag': 'direct'},
-        {'type': 'block',  'tag': 'block'},
       ],
       'route': {
-        'rules': routeRules,
-        if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
+        'rules': [
+          {'action': 'sniff'},
+          {'protocol': 'dns', 'action': 'hijack-dns'},
+          {'ip_is_private': true, 'outbound': 'direct'},
+        ],
         'final': 'proxy',
         'auto_detect_interface': true,
       },
