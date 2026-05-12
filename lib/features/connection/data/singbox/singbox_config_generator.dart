@@ -367,4 +367,100 @@ class SingboxConfigGenerator {
       'auto_detect_interface': true,
     };
   }
+
+  Map<String, dynamic> _dns_out() => {'type': 'dns', 'tag': 'dns-out'};
+
+  String generateForAndroid(ParsedProxy proxy, AppSettings settings) {
+    final proxyOut = _outbound(proxy);
+    if (settings.multiplexerEnabled) {
+      proxyOut['multiplex'] = {
+        'enabled': true,
+        'protocol': 'smux',
+        'max_connections': 4,
+        'min_streams': 4,
+      };
+    }
+    final outbounds = <Map<String, dynamic>>[proxyOut];
+
+    if (proxy is ShadowTlsConfig) {
+      final inner = _outbound(proxy.innerProxy);
+      inner['tag'] = 'shadowtls-inner';
+      outbounds.add(inner);
+    }
+
+    outbounds.addAll([_direct(), _block(), _dns_out()]);
+
+    final config = {
+      'log': _log(settings),
+      'dns': _dns(settings),
+      'inbounds': _inboundsForAndroid(),
+      'outbounds': outbounds,
+      'route': _routeForAndroid(settings),
+    };
+    return jsonEncode(config);
+  }
+
+  List<Map<String, dynamic>> _inboundsForAndroid() => [
+    {
+      'type': 'tun',
+      'tag': 'tun-in',
+      'fd': -1,
+      'mtu': 9000,
+      'stack': 'mixed',
+      'sniff': true,
+    },
+  ];
+
+  Map<String, dynamic> _routeForAndroid(AppSettings s) {
+    final rules = <Map<String, dynamic>>[
+      {'action': 'sniff'},
+      if (s.fragmentationEnabled) {'action': 'tls_fragment'},
+      {'protocol': 'dns', 'action': 'hijack-dns'},
+      {'ip_is_private': true, 'outbound': 'direct'},
+    ];
+
+    final ruleSets = <Map<String, dynamic>>[];
+
+    if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
+      rules.add({'rule_set': 'geosite-cn', 'outbound': 'direct'});
+      rules.add({'rule_set': 'geoip-cn', 'outbound': 'direct'});
+      ruleSets.addAll([
+        {
+          'type': 'remote',
+          'tag': 'geosite-cn',
+          'format': 'binary',
+          'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs',
+          'download_detour': 'direct',
+          'update_interval': '7d',
+        },
+        {
+          'type': 'remote',
+          'tag': 'geoip-cn',
+          'format': 'binary',
+          'url': 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
+          'download_detour': 'direct',
+          'update_interval': '7d',
+        },
+      ]);
+    }
+
+    if (s.blockAds) {
+      rules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
+      ruleSets.add({
+        'type': 'remote',
+        'tag': 'geosite-category-ads-all',
+        'format': 'binary',
+        'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs',
+        'download_detour': 'direct',
+        'update_interval': '7d',
+      });
+    }
+
+    return {
+      'rules': rules,
+      if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
+      'final': 'proxy',
+      'auto_detect_interface': true,
+    };
+  }
 }

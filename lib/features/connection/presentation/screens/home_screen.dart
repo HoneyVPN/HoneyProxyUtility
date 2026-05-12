@@ -18,8 +18,8 @@ import '../../../servers/data/models/server_profile_model.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../servers/presentation/widgets/server_list_tile.dart';
 import '../../../subscriptions/presentation/screens/subscriptions_screen.dart';
-import '../../../update/update_provider.dart'
-import '../../../settings/presentation/notifiers/settings_notifier.dart'
+import '../../../update/update_provider.dart';
+import '../../../settings/presentation/notifiers/settings_notifier.dart';
 import '../../../settings/data/models/app_settings.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
