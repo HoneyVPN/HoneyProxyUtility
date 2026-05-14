@@ -62,13 +62,17 @@ jobs:
       - name: Deploy APK to honeyvpn.ru
         run: |
           TAG=${{ github.ref_name }}
-          for f in build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk; do
+          APK=$(ls build/app/outputs/flutter-apk/HoneyProxyUtility-*arm64*.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            APK=$(ls build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk 2>/dev/null | head -1)
+          fi
+          if [ -n "$APK" ]; then
             curl -X POST https://api.honeyvpn.ru/deploy/android \
               -H "X-Deploy-Token: 3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a" \
               -H "X-Version: $TAG" \
-              -F "file=@$f" \
-              --fail --show-error --max-time 300 || true
-          done
+              -F "file=@$APK" \
+              --fail --show-error --max-time 300
+          fi
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
