@@ -1,6 +1,8 @@
 package ru.honeyvpn.proxy
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.content.Intent
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -20,27 +22,34 @@ class NativeBindings(
 
     companion object {
         private var instance: NativeBindings? = null
+        private val mainHandler = Handler(Looper.getMainLooper())
 
-        fun onVpnStarted() = instance?.eventSink?.success(mapOf(
-            "event" to "started",
-            "uplink" to 0, "downlink" to 0,
-            "uplinkTotal" to 0, "downlinkTotal" to 0, "duration" to 0,
-        ))
+        fun onVpnStarted() = mainHandler.post {
+            instance?.eventSink?.success(mapOf(
+                "event" to "started",
+                "uplink" to 0L, "downlink" to 0L,
+                "uplinkTotal" to 0L, "downlinkTotal" to 0L, "duration" to 0L,
+            ))
+        }
 
-        fun onVpnStopped() = instance?.eventSink?.success(mapOf("event" to "stopped"))
+        fun onVpnStopped() = mainHandler.post {
+            instance?.eventSink?.success(mapOf("event" to "stopped"))
+        }
 
         fun pushStats(
             uplink: Long, downlink: Long,
             uplinkTotal: Long, downlinkTotal: Long,
             durationSeconds: Long,
-        ) = instance?.eventSink?.success(mapOf(
-            "event" to "stats",
-            "uplink" to uplink,
-            "downlink" to downlink,
-            "uplinkTotal" to uplinkTotal,
-            "downlinkTotal" to downlinkTotal,
-            "duration" to durationSeconds,
-        ))
+        ) = mainHandler.post {
+            instance?.eventSink?.success(mapOf(
+                "event" to "stats",
+                "uplink" to uplink,
+                "downlink" to downlink,
+                "uplinkTotal" to uplinkTotal,
+                "downlinkTotal" to downlinkTotal,
+                "duration" to durationSeconds,
+            ))
+        }
     }
 
     init {
