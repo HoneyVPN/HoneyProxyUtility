@@ -1,6 +1,6 @@
 name: honeyproxyutility
 description: HoneyProxyUtility — universal VPN client with provider marketplace
-version: 1.0.54+54
+version: 1.0.55+55
 publish_to: none
 
 environment:
