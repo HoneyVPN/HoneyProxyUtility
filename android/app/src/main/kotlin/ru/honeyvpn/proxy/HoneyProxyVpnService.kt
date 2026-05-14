@@ -137,6 +137,7 @@ class HoneyProxyVpnService : VpnService() {
             Log.d(TAG, "tun2socks started PID=$pid: fd=$tunRawFd → socks5://127.0.0.1:$SOCKS_PORT")
 
             // 5. Read tun2socks output from pipe
+            val t2sExited = java.util.concurrent.atomic.AtomicBoolean(false)
             val readFd = readFdArr[0]
             if (readFd >= 0) {
                 val pipePfd = ParcelFileDescriptor.adoptFd(readFd)
@@ -147,6 +148,7 @@ class HoneyProxyVpnService : VpnService() {
                             Log.d(TAG, "t2s: $line")
                         }
                     } catch (_: Exception) {}
+                    t2sExited.set(true)
                     try { pipePfd.close() } catch (_: Exception) {}
                     if (t2sPipePfd === pipePfd) t2sPipePfd = null
                 }.also { it.isDaemon = true; it.start() }
@@ -156,7 +158,7 @@ class HoneyProxyVpnService : VpnService() {
             watchdogThread = Thread {
                 while (isRunning) {
                     val sbDead = try { sbProc.exitValue(); true } catch (_: IllegalThreadStateException) { false }
-                    val t2sDead = pid > 0 && !File("/proc/$pid").exists()
+                    val t2sDead = if (readFd >= 0) t2sExited.get() else (pid > 0 && !File("/proc/$pid").exists())
                     if (sbDead || t2sDead) {
                         if (isRunning) {
                             val err = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
