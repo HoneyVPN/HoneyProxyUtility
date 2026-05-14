@@ -81,15 +81,10 @@ class SingboxConfigGenerator {
           'inet4_range': '198.18.0.0/15',
           'inet6_range': 'fc00::/18',
         },
-        {
-          'tag': 'block-dns',
-          'type': 'rcode',
-          'rcode': 'success',
-        },
       ],
       'rules': [
         ...rules,
-        if (s.blockAds) {'rule_set': 'geosite-category-ads-all', 'server': 'block-dns'},
+        if (s.blockAds) {'rule_set': 'geosite-category-ads-all', 'action': 'reject'},
         if (s.enableFakeip) {'query_type': ['A', 'AAAA'], 'server': 'fakeip-dns'},
       ],
       'final': 'remote-dns',
