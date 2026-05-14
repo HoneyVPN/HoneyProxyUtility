@@ -7,8 +7,6 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
-import android.system.Os
-import android.system.OsConstants
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
@@ -72,14 +70,20 @@ class HoneyProxyVpnService : VpnService() {
         }
         tunFd = fd
 
-        // Clear O_CLOEXEC so sing-box subprocess inherits the fd.
+        // Try to clear O_CLOEXEC so sing-box inherits the fd; hidden API so use reflection.
+        // Non-fatal: on Android the fd is inherited anyway even if this fails.
         try {
-            Os.fcntl(fd.fileDescriptor, OsConstants.F_SETFD, 0)
+            val fcntl = Class.forName("android.system.Os").getMethod(
+                "fcntl", java.io.FileDescriptor::class.java,
+                Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!
+            )
+            fcntl.invoke(null, fd.fileDescriptor, 2 /* F_SETFD */, 0)
             Log.d(TAG, "CLOEXEC cleared on TUN fd")
         } catch (e: Exception) {
-            Log.w(TAG, "fcntl clear CLOEXEC failed: ${e.message}")
+            Log.w(TAG, "fcntl CLOEXEC skipped: ${e.message}")
         }
-        val rawFd = fd.fd  // ParcelFileDescriptor.getFd() — public API
+
+        val rawFd = fd.fd
         Log.d(TAG, "TUN established, fd=$rawFd")
 
         isRunning = true
@@ -88,7 +92,6 @@ class HoneyProxyVpnService : VpnService() {
 
     private fun launchSingbox(configJson: String, rawFd: Int) {
         try {
-            // Inject real tun fd into config (replaces placeholder -1)
             val cfg = JSONObject(configJson)
             val inbounds = cfg.getJSONArray("inbounds")
             for (i in 0 until inbounds.length()) {
@@ -114,7 +117,6 @@ class HoneyProxyVpnService : VpnService() {
                 .start()
             sbProcess = proc
 
-            // Capture sing-box stdout/stderr to log file and logcat
             val logFile = File(cacheDir, "singbox.log")
             val sbOutput = StringBuilder()
             Thread {
@@ -125,13 +127,11 @@ class HoneyProxyVpnService : VpnService() {
                 try { logFile.writeText(sbOutput.toString()) } catch (_: Exception) {}
             }.also { it.isDaemon = true; it.start() }
 
-            // Watchdog: detect unexpected exit
             watchdogThread = Thread {
                 val code = proc.waitFor()
                 if (sbProcess == proc) {
                     val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
-                    Log.e(TAG, "sing-box exited unexpectedly: code=$code
-$errMsg")
+                    Log.e(TAG, "sing-box exited unexpectedly: code=$code\n$errMsg")
                     try { logFile.writeText(sbOutput.toString()) } catch (_: Exception) {}
                     sbProcess = null
                     isRunning = false
@@ -139,12 +139,10 @@ $errMsg")
                 }
             }.also { it.isDaemon = true; it.start() }
 
-            // Wait for sing-box to initialise its listeners
             Thread.sleep(1500)
             if (sbProcess == null) {
                 val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
-                Log.e(TAG, "sing-box exited during startup:
-$errMsg")
+                Log.e(TAG, "sing-box exited during startup:\n$errMsg")
                 return
             }
 
@@ -163,12 +161,11 @@ $errMsg")
             var totalUp = 0L
             var totalDown = 0L
             val startMs = System.currentTimeMillis()
-
             try {
                 val conn = URL("http://127.0.0.1:$CLASH_PORT/traffic")
                     .openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000
-                conn.readTimeout = 0  // streaming, no timeout
+                conn.readTimeout = 0
                 conn.connect()
                 conn.inputStream.bufferedReader().forEachLine { line ->
                     if (!isRunning || sbProcess == null) return@forEachLine
@@ -183,7 +180,7 @@ $errMsg")
                     } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Clash API unavailable, using fallback timer: ${e.message}")
+                Log.w(TAG, "Clash API unavailable, fallback timer: ${e.message}")
                 val fbStart = System.currentTimeMillis()
                 while (isRunning && sbProcess != null) {
                     try {
@@ -199,21 +196,15 @@ $errMsg")
     private fun stopTunnel() {
         Log.d(TAG, "Stopping VPN tunnel")
         isRunning = false
-
         sbProcess?.destroy()
         sbProcess = null
         statsPollThread?.interrupt()
         statsPollThread = null
         watchdogThread?.interrupt()
         watchdogThread = null
-
-        try {
-            tunFd?.close()
-            tunFd = null
-        } catch (e: Exception) {
+        try { tunFd?.close(); tunFd = null } catch (e: Exception) {
             Log.e(TAG, "Error closing TUN: ${e.message}")
         }
-
         NativeBindings.onVpnStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
