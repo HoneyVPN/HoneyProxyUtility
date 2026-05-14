@@ -73,12 +73,9 @@ class HoneyProxyVpnService : VpnService() {
         tunFd = fd
 
         // Clear O_CLOEXEC so sing-box subprocess inherits the fd.
-        // Os.fcntl is @hide — access via reflection.
         try {
-            val fcntl = Os::class.java.getMethod(
-                "fcntl", java.io.FileDescriptor::class.java, Int::class.java, Int::class.java
-            )
-            fcntl.invoke(null, fd.fileDescriptor, OsConstants.F_SETFD, 0)
+            Os.fcntl(fd.fileDescriptor, OsConstants.F_SETFD, 0)
+            Log.d(TAG, "CLOEXEC cleared on TUN fd")
         } catch (e: Exception) {
             Log.w(TAG, "fcntl clear CLOEXEC failed: ${e.message}")
         }
@@ -117,16 +114,25 @@ class HoneyProxyVpnService : VpnService() {
                 .start()
             sbProcess = proc
 
-            // Log sing-box stdout/stderr
+            // Capture sing-box stdout/stderr to log file and logcat
+            val logFile = File(cacheDir, "singbox.log")
+            val sbOutput = StringBuilder()
             Thread {
-                proc.inputStream.bufferedReader().forEachLine { Log.d(TAG, "sb: $it") }
+                proc.inputStream.bufferedReader().forEachLine { line ->
+                    Log.d(TAG, "sb: $line")
+                    synchronized(sbOutput) { sbOutput.appendLine(line) }
+                }
+                try { logFile.writeText(sbOutput.toString()) } catch (_: Exception) {}
             }.also { it.isDaemon = true; it.start() }
 
             // Watchdog: detect unexpected exit
             watchdogThread = Thread {
                 val code = proc.waitFor()
                 if (sbProcess == proc) {
-                    Log.e(TAG, "sing-box exited unexpectedly: code=$code")
+                    val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
+                    Log.e(TAG, "sing-box exited unexpectedly: code=$code
+$errMsg")
+                    try { logFile.writeText(sbOutput.toString()) } catch (_: Exception) {}
                     sbProcess = null
                     isRunning = false
                     NativeBindings.onVpnStopped()
@@ -136,7 +142,9 @@ class HoneyProxyVpnService : VpnService() {
             // Wait for sing-box to initialise its listeners
             Thread.sleep(1500)
             if (sbProcess == null) {
-                Log.e(TAG, "sing-box exited during startup")
+                val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
+                Log.e(TAG, "sing-box exited during startup:
+$errMsg")
                 return
             }
 
