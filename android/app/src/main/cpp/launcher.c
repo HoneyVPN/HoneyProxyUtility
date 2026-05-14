@@ -41,7 +41,7 @@ Java_ru_honeyvpn_proxy_NativeLauncher_forkExecTun2socks(
         execl(path, "libtun2socks.so",
               "-device",   fd_arg,
               "-proxy",    proxy_arg,
-              "-loglevel", "debug",
+              "-loglevel", "warn",
               (char *)0);
         _exit(127);
     }

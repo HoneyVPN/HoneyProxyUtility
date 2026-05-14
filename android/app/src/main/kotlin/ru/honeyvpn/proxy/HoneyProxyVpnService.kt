@@ -60,7 +60,6 @@ class HoneyProxyVpnService : VpnService() {
             .addAddress("172.19.0.1", 30)
             .addAddress("fdfe:dcba:9876::1", 126)
             .addDnsServer("172.19.0.2")
-            .addDnsServer("fdfe:dcba:9876::2")
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
             .setMtu(9000)
