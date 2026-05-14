@@ -456,7 +456,7 @@ class SingboxConfigGenerator {
     {
       'type': 'tun',
       'tag': 'tun-in',
-      'fd': -1,
+      // interface_name is injected at runtime by HoneyProxyVpnService
       'mtu': 9000,
       'stack': 'mixed',
     },
