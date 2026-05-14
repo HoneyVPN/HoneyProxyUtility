@@ -29,7 +29,7 @@ class SingboxConfigGenerator {
       outbounds.add(inner);
     }
 
-    outbounds.addAll([_direct(), _block(), _dns_out()]);
+    outbounds.addAll([_direct(), _block()]);
 
     final config = {
       'log': _log(settings),
@@ -414,8 +414,6 @@ class SingboxConfigGenerator {
     };
   }
 
-  Map<String, dynamic> _dns_out() => {'type': 'dns', 'tag': 'dns-out'};
-
   String generateForAndroid(ParsedProxy proxy, AppSettings settings) {
     final proxyOut = _outbound(proxy);
     if (settings.multiplexerEnabled) {
@@ -434,7 +432,7 @@ class SingboxConfigGenerator {
       outbounds.add(inner);
     }
 
-    outbounds.addAll([_direct(), _block(), _dns_out()]);
+    outbounds.addAll([_direct(), _block()]);
 
     final config = {
       'log': _log(settings),
