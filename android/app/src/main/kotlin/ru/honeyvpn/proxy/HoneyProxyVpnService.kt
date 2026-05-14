@@ -161,6 +161,7 @@ class HoneyProxyVpnService : VpnService() {
                         if (isRunning) {
                             val err = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
                             Log.e(TAG, "Process died: sb=$sbDead t2s=$t2sDead\n$err")
+                            if (!sbDead) sbProc.destroyForcibly()
                             isRunning = false; sbProcess = null; t2sPid = -1
                             NativeBindings.onVpnStopped()
                         }
