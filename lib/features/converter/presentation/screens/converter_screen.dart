@@ -220,57 +220,92 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
+                                final result = await showModalBottomSheet<String?>(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) => const QrScanDialog(),
+                                );
+                                if (result != null && result.isNotEmpty) {
+                                  notifier.updateText(result);
+                                  _ctrl.text = result;
+                                  notifier.parse();
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 10)),
+                              child: const Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.qr_code_scanner, size: 22),
+                                  SizedBox(height: 3),
+                                  Text('Scan', style: TextStyle(fontSize: 10)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
-                          child: OutlinedButton.icon(
+                          child: OutlinedButton(
                             onPressed: () async {
-                              final result = await showModalBottomSheet<String?>(
-                                context: context,
-                                isScrollControlled: true,
-                                backgroundColor: Colors.transparent,
-                                builder: (_) => const QrScanDialog(),
-                              );
-                              if (result != null && result.isNotEmpty) {
-                                notifier.updateText(result);
-                                _ctrl.text = result;
-                                notifier.parse();
+                              final err = await notifier.pasteFromClipboard();
+                              if (err == 'clipboard_denied' && context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                  content: Text('Clipboard blocked by browser. Use Ctrl+V in the text field.'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: Duration(seconds: 4),
+                                ));
                               }
                             },
-                            icon: const Icon(Icons.qr_code_scanner, size: 16),
-                            label: const Text('Scan', overflow: TextOverflow.ellipsis),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 10)),
+                            child: const Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.paste, size: 22),
+                                SizedBox(height: 3),
+                                Text('Paste', style: TextStyle(fontSize: 10)),
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: s.importing ? null : notifier.parse,
+                            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 10)),
+                            child: s.importing
+                                ? const Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                                      SizedBox(height: 3),
+                                      Text('...', style: TextStyle(fontSize: 10, color: Colors.white)),
+                                    ],
+                                  )
+                                : const Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.link, size: 22),
+                                      SizedBox(height: 3),
+                                      Text('Parse', style: TextStyle(fontSize: 10)),
+                                    ],
+                                  ),
+                          ),
+                        ),
                       ],
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final err = await notifier.pasteFromClipboard();
-                            if (err == 'clipboard_denied' && context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                content: Text('Clipboard blocked by browser. Use Ctrl+V in the text field.'),
-                                behavior: SnackBarBehavior.floating,
-                                duration: Duration(seconds: 4),
-                              ));
-                            }
-                          },
-                          icon: const Icon(Icons.paste, size: 16),
-                          label: const Text('Paste', overflow: TextOverflow.ellipsis),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: s.importing ? null : notifier.parse,
-                          icon: s.importing
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const Icon(Icons.link, size: 16),
-                          label: Text(s.importing ? '...' : 'Parse', overflow: TextOverflow.ellipsis),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),

@@ -65,7 +65,7 @@ class SingboxConfigGenerator {
       'servers': [
         {'tag': 'remote-dns', 'address': remoteDns, 'detour': 'proxy', 'strategy': _ipStrategy(s.preferredIpType)},
         {'tag': 'local-dns', 'address': 'https://223.5.5.5/dns-query', 'detour': 'direct'},
-        if (s.enableFakeip) {'tag': 'fakeip-dns', 'address': 'fakeip'},
+        if (s.enableFakeip) {'tag': 'fakeip-dns', 'type': 'fakeip'},
         {'tag': 'block-dns', 'address': 'rcode://success'},
       ],
       if (s.enableFakeip)
@@ -428,7 +428,6 @@ class SingboxConfigGenerator {
       'fd': -1,
       'mtu': 9000,
       'stack': 'mixed',
-      'sniff': true,
     },
   ];
 
