@@ -222,9 +222,8 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
+                      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+                        Expanded(
                           child: OutlinedButton.icon(
                             onPressed: () async {
                               final result = await showModalBottomSheet<String?>(
@@ -240,9 +239,11 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
                               }
                             },
                             icon: const Icon(Icons.qr_code_scanner, size: 16),
-                            label: const Text('Scan'),
+                            label: const Text('Scan', overflow: TextOverflow.ellipsis),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                      ],
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: () async {
@@ -256,7 +257,7 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
                             }
                           },
                           icon: const Icon(Icons.paste, size: 16),
-                          label: const Text('Paste'),
+                          label: const Text('Paste', overflow: TextOverflow.ellipsis),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -266,7 +267,7 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
                           icon: s.importing
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                               : const Icon(Icons.link, size: 16),
-                          label: Text(s.importing ? 'Loading...' : 'Parse'),
+                          label: Text(s.importing ? '...' : 'Parse', overflow: TextOverflow.ellipsis),
                         ),
                       ),
                     ],
