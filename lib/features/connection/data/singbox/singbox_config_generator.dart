@@ -435,7 +435,7 @@ class SingboxConfigGenerator {
 
     final config = {
       'log': _log(settings),
-      'dns': _dns(settings),
+      'dns': _dns(settings.copyWith(enableFakeip: false)),
       'inbounds': _inboundsForAndroid(),
       'outbounds': outbounds,
       'route': _routeForAndroid(settings),
@@ -451,11 +451,12 @@ class SingboxConfigGenerator {
 
   List<Map<String, dynamic>> _inboundsForAndroid() => [
     {
-      'type': 'tun',
-      'tag': 'tun-in',
-      // interface_name is injected at runtime by HoneyProxyVpnService
-      'mtu': 9000,
-      'stack': 'mixed',
+      'type': 'socks',
+      'tag': 'socks-in',
+      'listen': '127.0.0.1',
+      'listen_port': 2080,
+      'sniff': true,
+      'sniff_override_destination': true,
     },
   ];
 
