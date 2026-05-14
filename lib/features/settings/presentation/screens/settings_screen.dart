@@ -316,7 +316,7 @@ class _SettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListTile(
     leading: Icon(icon, color: NexPalette.accent, size: 20),
-    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
     subtitle: subtitle.isNotEmpty ? Text(subtitle, style: const TextStyle(fontSize: 11)) : null,
     trailing: trailing ?? (onTap != null ? const Icon(Icons.chevron_right, size: 18) : null),
     onTap: onTap,
@@ -343,7 +343,7 @@ class _SwitchTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListTile(
     leading: Icon(icon, color: NexPalette.accent, size: 20),
-    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
     subtitle: Text(subtitle, style: const TextStyle(fontSize: 11)),
     trailing: Switch(value: value, onChanged: onChanged),
     onTap: () => onChanged(!value),

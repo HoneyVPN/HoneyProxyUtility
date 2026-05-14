@@ -382,6 +382,8 @@ class _StatusCard extends StatelessWidget {
                     fontSize: 15,
                     color: statusColor,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -399,28 +401,30 @@ class _StatusCard extends StatelessWidget {
           ConnectButton(status: conn.status, onTap: onConnectTap),
         ],
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _ModeButton(
-                  label: 'TUN',
-                  icon: Icons.vpn_lock_outlined,
-                  selected: connectionMode == ConnectionMode.tunnel,
-                  onTap: () => onModeChanged(ConnectionMode.tunnel),
+          if (Platform.isWindows) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _ModeButton(
+                    label: 'TUN',
+                    icon: Icons.vpn_lock_outlined,
+                    selected: connectionMode == ConnectionMode.tunnel,
+                    onTap: () => onModeChanged(ConnectionMode.tunnel),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ModeButton(
-                  label: 'Proxy',
-                  icon: Icons.device_hub_outlined,
-                  selected: connectionMode == ConnectionMode.proxy,
-                  onTap: () => onModeChanged(ConnectionMode.proxy),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _ModeButton(
+                    label: 'Proxy',
+                    icon: Icons.device_hub_outlined,
+                    selected: connectionMode == ConnectionMode.proxy,
+                    onTap: () => onModeChanged(ConnectionMode.proxy),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ],
       ),
     );
