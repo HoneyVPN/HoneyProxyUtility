@@ -47,11 +47,11 @@ class SingboxConfigGenerator {
   };
 
   Map<String, dynamic> _dns(AppSettings s) {
-    final remoteDns = switch (s.dnsPreset) {
-      DnsPreset.cloudflare => 'tls://1.1.1.1',
-      DnsPreset.google => 'tls://8.8.8.8',
-      DnsPreset.adguard => 'tls://94.140.14.14',
-      DnsPreset.custom => _isValidDnsUrl(s.customDnsUrl) ? s.customDnsUrl : 'tls://1.1.1.1',
+    final remoteDnsServer = switch (s.dnsPreset) {
+      DnsPreset.cloudflare => {'type': 'tls', 'server': '1.1.1.1'},
+      DnsPreset.google     => {'type': 'tls', 'server': '8.8.8.8'},
+      DnsPreset.adguard    => {'type': 'tls', 'server': '94.140.14.14'},
+      DnsPreset.custom     => _parseDnsAddress(s.customDnsUrl),
     };
 
     final rules = <Map<String, dynamic>>[
@@ -63,15 +63,30 @@ class SingboxConfigGenerator {
 
     return {
       'servers': [
-        {'tag': 'remote-dns', 'address': remoteDns, 'detour': 'proxy', 'strategy': _ipStrategy(s.preferredIpType)},
-        {'tag': 'local-dns', 'address': 'https://223.5.5.5/dns-query', 'detour': 'direct'},
+        {
+          'tag': 'remote-dns',
+          ...remoteDnsServer,
+          'detour': 'proxy',
+          'strategy': _ipStrategy(s.preferredIpType),
+        },
+        {
+          'tag': 'local-dns',
+          'type': 'https',
+          'server': '223.5.5.5',
+          'path': '/dns-query',
+          'detour': 'direct',
+        },
         if (s.enableFakeip) {
           'tag': 'fakeip-dns',
           'type': 'fakeip',
           'inet4_range': '198.18.0.0/15',
           'inet6_range': 'fc00::/18',
         },
-        {'tag': 'block-dns', 'address': 'rcode://success'},
+        {
+          'tag': 'block-dns',
+          'type': 'rcode',
+          'rcode': 'success',
+        },
       ],
       'rules': [
         ...rules,
@@ -81,6 +96,23 @@ class SingboxConfigGenerator {
       'final': 'remote-dns',
       'independent_cache': true,
     };
+  }
+
+  Map<String, dynamic> _parseDnsAddress(String url) {
+    if (!_isValidDnsUrl(url)) return {'type': 'tls', 'server': '1.1.1.1'};
+    try {
+      final uri = Uri.parse(url);
+      if (uri.scheme == 'https') {
+        return {
+          'type': 'https',
+          'server': uri.host,
+          'path': uri.path.isEmpty ? '/dns-query' : uri.path,
+        };
+      }
+      return {'type': 'tls', 'server': uri.host.isEmpty ? '1.1.1.1' : uri.host};
+    } catch (_) {
+      return {'type': 'tls', 'server': '1.1.1.1'};
+    }
   }
 
   List<Map<String, dynamic>> _inbounds(AppSettings s) => [
