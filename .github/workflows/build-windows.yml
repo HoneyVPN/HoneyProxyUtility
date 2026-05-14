@@ -97,4 +97,10 @@ jobs:
         shell: powershell
         run: |
           $tag = "${{ github.ref_name }}"
-          gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --title "HoneyProxyUtility $tag" --generate-notes
+          $file = "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe"
+          $exists = gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "build\windows\installer\HoneyProxyUtility-Setup.exe" --clobber
+          } else {
+            gh release create $tag $file --title "HoneyProxyUtility $tag" --generate-notes
+          }
