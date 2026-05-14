@@ -65,15 +65,14 @@ class SingboxConfigGenerator {
       'servers': [
         {'tag': 'remote-dns', 'address': remoteDns, 'detour': 'proxy', 'strategy': _ipStrategy(s.preferredIpType)},
         {'tag': 'local-dns', 'address': 'https://223.5.5.5/dns-query', 'detour': 'direct'},
-        if (s.enableFakeip) {'tag': 'fakeip-dns', 'type': 'fakeip'},
-        {'tag': 'block-dns', 'address': 'rcode://success'},
-      ],
-      if (s.enableFakeip)
-        'fakeip': {
-          'enabled': true,
+        if (s.enableFakeip) {
+          'tag': 'fakeip-dns',
+          'type': 'fakeip',
           'inet4_range': '198.18.0.0/15',
           'inet6_range': 'fc00::/18',
         },
+        {'tag': 'block-dns', 'address': 'rcode://success'},
+      ],
       'rules': [
         ...rules,
         if (s.blockAds) {'rule_set': 'geosite-category-ads-all', 'server': 'block-dns'},
@@ -417,6 +416,12 @@ class SingboxConfigGenerator {
       'inbounds': _inboundsForAndroid(),
       'outbounds': outbounds,
       'route': _routeForAndroid(settings),
+      'experimental': {
+        'clash_api': {
+          'external_controller': '127.0.0.1:9090',
+          'store_selected': false,
+        },
+      },
     };
     return jsonEncode(config);
   }
