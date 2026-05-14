@@ -67,7 +67,6 @@ class SingboxConfigGenerator {
           'tag': 'remote-dns',
           ...remoteDnsServer,
           'detour': 'proxy',
-          'strategy': _ipStrategy(s.preferredIpType),
         },
         {
           'tag': 'local-dns',
