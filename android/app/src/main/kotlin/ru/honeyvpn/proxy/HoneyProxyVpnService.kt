@@ -49,6 +49,10 @@ class HoneyProxyVpnService : VpnService() {
         Log.d(TAG, "Starting VPN tunnel")
         startForeground(NOTIFICATION_ID, buildNotification("Подключение..."))
 
+        // Snapshot existing interfaces to detect new TUN after establish()
+        val beforeIfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            ?.toList()?.map { it.name }?.toSet() ?: emptySet()
+
         val builder = Builder()
             .setSession("HoneyProxyUtility")
             .addAddress("172.19.0.1", 30)
@@ -70,34 +74,25 @@ class HoneyProxyVpnService : VpnService() {
         }
         tunFd = fd
 
-        // Try to clear O_CLOEXEC so sing-box inherits the fd; hidden API so use reflection.
-        // Non-fatal: on Android the fd is inherited anyway even if this fails.
-        try {
-            val fcntl = Class.forName("android.system.Os").getMethod(
-                "fcntl", java.io.FileDescriptor::class.java,
-                Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!
-            )
-            fcntl.invoke(null, fd.fileDescriptor, 2 /* F_SETFD */, 0)
-            Log.d(TAG, "CLOEXEC cleared on TUN fd")
-        } catch (e: Exception) {
-            Log.w(TAG, "fcntl CLOEXEC skipped: ${e.message}")
-        }
-
-        val rawFd = fd.fd
-        Log.d(TAG, "TUN established, fd=$rawFd")
+        // Find the new TUN interface name by comparing before/after establish()
+        Thread.sleep(50)
+        val afterIfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            ?.toList()?.map { it.name }?.toSet() ?: emptySet()
+        val tunIfaceName = (afterIfaces - beforeIfaces).firstOrNull { it.startsWith("tun") } ?: "tun0"
+        Log.d(TAG, "TUN established: iface=$tunIfaceName fd=${fd.fd}")
 
         isRunning = true
-        Thread { launchSingbox(configJson, rawFd) }.also { it.isDaemon = true; it.start() }
+        Thread { launchSingbox(configJson, tunIfaceName) }.also { it.isDaemon = true; it.start() }
     }
 
-    private fun launchSingbox(configJson: String, rawFd: Int) {
+    private fun launchSingbox(configJson: String, tunIfaceName: String) {
         try {
             val cfg = JSONObject(configJson)
             val inbounds = cfg.getJSONArray("inbounds")
             for (i in 0 until inbounds.length()) {
                 val inb = inbounds.getJSONObject(i)
                 if (inb.optString("type") == "tun") {
-                    inb.put("fd", rawFd)
+                    inb.put("interface_name", tunIfaceName)
                     break
                 }
             }
