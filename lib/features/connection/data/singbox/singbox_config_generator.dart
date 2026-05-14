@@ -54,9 +54,7 @@ class SingboxConfigGenerator {
       DnsPreset.custom     => _parseDnsAddress(s.customDnsUrl),
     };
 
-    final rules = <Map<String, dynamic>>[
-      {'outbound': 'any', 'server': 'local-dns'},
-    ];
+    final rules = <Map<String, dynamic>>[];
     if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
       rules.add({'rule_set': 'ru', 'server': 'local-dns'});
     }
@@ -411,6 +409,7 @@ class SingboxConfigGenerator {
       if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
       'final': 'proxy',
       'auto_detect_interface': true,
+      'default_domain_resolver': {'server': 'local-dns'},
     };
   }
 
@@ -492,6 +491,7 @@ class SingboxConfigGenerator {
       'rules': rules,
       if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
       'final': 'proxy',
+      'default_domain_resolver': {'server': 'local-dns'},
       // Android: no auto_detect_interface — routing handled by VPN service
     };
   }
