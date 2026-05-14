@@ -464,7 +464,7 @@ class SingboxConfigGenerator {
       'rules': rules,
       if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
       'final': 'proxy',
-      'auto_detect_interface': true,
+      // Android: no auto_detect_interface — routing handled by VPN service
     };
   }
 }
