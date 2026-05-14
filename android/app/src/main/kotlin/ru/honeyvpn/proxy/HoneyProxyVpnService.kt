@@ -7,11 +7,16 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
 
 class HoneyProxyVpnService : VpnService() {
@@ -23,6 +28,7 @@ class HoneyProxyVpnService : VpnService() {
         const val CHANNEL_ID   = "honeyvpn_vpn"
         const val NOTIFICATION_ID = 1001
         private const val CLASH_PORT = 9090
+        private const val SOCKS_PORT = 2080
 
         @Volatile
         var isRunning = false
@@ -31,6 +37,7 @@ class HoneyProxyVpnService : VpnService() {
 
     private var tunFd: ParcelFileDescriptor? = null
     private var sbProcess: Process? = null
+    private var t2sProcess: Process? = null
     private var statsPollThread: Thread? = null
     private var watchdogThread: Thread? = null
 
@@ -49,10 +56,6 @@ class HoneyProxyVpnService : VpnService() {
         Log.d(TAG, "Starting VPN tunnel")
         startForeground(NOTIFICATION_ID, buildNotification("Подключение..."))
 
-        // Snapshot existing interfaces to detect new TUN after establish()
-        val beforeIfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            ?.toList()?.map { it.name }?.toSet() ?: emptySet()
-
         val builder = Builder()
             .setSession("HoneyProxyUtility")
             .addAddress("172.19.0.1", 30)
@@ -67,38 +70,31 @@ class HoneyProxyVpnService : VpnService() {
         try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
 
         tunFd?.close()
-        val fd = builder.establish() ?: run {
+        val pfd = builder.establish() ?: run {
             Log.e(TAG, "Failed to establish VPN interface")
             stopSelf()
             return
         }
-        tunFd = fd
+        tunFd = pfd
 
-        // Find the new TUN interface name by comparing before/after establish()
-        Thread.sleep(50)
-        val afterIfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            ?.toList()?.map { it.name }?.toSet() ?: emptySet()
-        val tunIfaceName = (afterIfaces - beforeIfaces).firstOrNull { it.startsWith("tun") } ?: "tun0"
-        Log.d(TAG, "TUN established: iface=$tunIfaceName fd=${fd.fd}")
+        // Clear FD_CLOEXEC so tun2socks subprocess inherits this fd after exec()
+        try {
+            Os.fcntl(pfd.fileDescriptor, OsConstants.F_SETFD, 0)
+        } catch (e: ErrnoException) {
+            Log.w(TAG, "fcntl clear CLOEXEC failed: ${e.message}")
+        }
+
+        val rawFd = pfd.fd
+        Log.d(TAG, "TUN established: fd=$rawFd")
 
         isRunning = true
-        Thread { launchSingbox(configJson, tunIfaceName) }.also { it.isDaemon = true; it.start() }
+        Thread { launchSingboxAndTun2socks(configJson, rawFd) }.also { it.isDaemon = true; it.start() }
     }
 
-    private fun launchSingbox(configJson: String, tunIfaceName: String) {
+    private fun launchSingboxAndTun2socks(configJson: String, tunRawFd: Int) {
         try {
-            val cfg = JSONObject(configJson)
-            val inbounds = cfg.getJSONArray("inbounds")
-            for (i in 0 until inbounds.length()) {
-                val inb = inbounds.getJSONObject(i)
-                if (inb.optString("type") == "tun") {
-                    inb.put("interface_name", tunIfaceName)
-                    break
-                }
-            }
-
             val cfgFile = File(cacheDir, "sbconfig.json")
-            cfgFile.writeText(cfg.toString())
+            cfgFile.writeText(configJson)
 
             val sbPath = "${applicationInfo.nativeLibraryDir}/libsingbox.so"
             if (!File(sbPath).exists()) {
@@ -107,48 +103,104 @@ class HoneyProxyVpnService : VpnService() {
                 return
             }
 
-            val proc = ProcessBuilder(sbPath, "run", "-c", cfgFile.absolutePath)
+            // 1. Start sing-box (SOCKS5 inbound only — no TUN inbound)
+            val sbProc = ProcessBuilder(sbPath, "run", "-c", cfgFile.absolutePath)
                 .redirectErrorStream(true)
                 .start()
-            sbProcess = proc
+            sbProcess = sbProc
 
-            val logFile = File(cacheDir, "singbox.log")
             val sbOutput = StringBuilder()
             Thread {
-                proc.inputStream.bufferedReader().forEachLine { line ->
+                sbProc.inputStream.bufferedReader().forEachLine { line ->
                     Log.d(TAG, "sb: $line")
                     synchronized(sbOutput) { sbOutput.appendLine(line) }
                 }
-                try { logFile.writeText(sbOutput.toString()) } catch (_: Exception) {}
             }.also { it.isDaemon = true; it.start() }
 
-            watchdogThread = Thread {
-                val code = proc.waitFor()
-                if (sbProcess == proc) {
-                    val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
-                    Log.e(TAG, "sing-box exited unexpectedly: code=$code\n$errMsg")
-                    try { logFile.writeText(sbOutput.toString()) } catch (_: Exception) {}
-                    sbProcess = null
-                    isRunning = false
-                    NativeBindings.onVpnStopped()
+            // 2. Wait for sing-box SOCKS5 to be ready (up to 10s)
+            val socksReady = waitForPort("127.0.0.1", SOCKS_PORT, timeoutMs = 10_000)
+            if (!socksReady) {
+                val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
+                Log.e(TAG, "sing-box SOCKS5 not ready: $errMsg")
+                sbProc.destroy()
+                sbProcess = null
+                isRunning = false
+                NativeBindings.onVpnStopped()
+                return
+            }
+            Log.d(TAG, "sing-box SOCKS5 ready on port $SOCKS_PORT")
+
+            // 3. Start tun2socks: reads from inherited TUN fd, forwards to sing-box SOCKS5
+            val t2sPath = "${applicationInfo.nativeLibraryDir}/libtun2socks.so"
+            if (!File(t2sPath).exists()) {
+                Log.e(TAG, "tun2socks binary not found: $t2sPath")
+                notifyError("tun2socks binary not found")
+                sbProc.destroy()
+                sbProcess = null
+                isRunning = false
+                NativeBindings.onVpnStopped()
+                return
+            }
+
+            val t2sProc = ProcessBuilder(
+                t2sPath,
+                "-device", "fd://$tunRawFd",
+                "-proxy", "socks5://127.0.0.1:$SOCKS_PORT",
+                "-loglevel", "warn"
+            ).redirectErrorStream(true).start()
+            t2sProcess = t2sProc
+            Log.d(TAG, "tun2socks started: fd=$tunRawFd → socks5://127.0.0.1:$SOCKS_PORT")
+
+            Thread {
+                t2sProc.inputStream.bufferedReader().forEachLine { line ->
+                    Log.d(TAG, "t2s: $line")
                 }
             }.also { it.isDaemon = true; it.start() }
 
-            Thread.sleep(1500)
-            if (sbProcess == null) {
-                val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
-                Log.e(TAG, "sing-box exited during startup:\n$errMsg")
-                return
-            }
+            // 4. Watchdog — if either process dies, stop the tunnel
+            watchdogThread = Thread {
+                // Wait for either process to exit
+                while (isRunning) {
+                    val sbDead = try { sbProc.exitValue(); true } catch (_: IllegalThreadStateException) { false }
+                    val t2sDead = try { t2sProc.exitValue(); true } catch (_: IllegalThreadStateException) { false }
+                    if (sbDead || t2sDead) {
+                        if (sbProcess == sbProc || t2sProcess == t2sProc) {
+                            val errMsg = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
+                            Log.e(TAG, "Process exited: sb=$sbDead t2s=$t2sDead\n$errMsg")
+                            sbProcess = null
+                            t2sProcess = null
+                            isRunning = false
+                            NativeBindings.onVpnStopped()
+                        }
+                        return@Thread
+                    }
+                    Thread.sleep(500)
+                }
+            }.also { it.isDaemon = true; it.start() }
 
             updateNotification("Подключено")
             NativeBindings.onVpnStarted()
             startStatsPolling()
 
         } catch (e: Exception) {
-            Log.e(TAG, "launchSingbox error: ${e.message}", e)
+            Log.e(TAG, "launchSingboxAndTun2socks error: ${e.message}", e)
             notifyError(e.message ?: "unknown error")
         }
+    }
+
+    private fun waitForPort(host: String, port: Int, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Socket().use { s ->
+                    s.connect(InetSocketAddress(host, port), 500)
+                    return true
+                }
+            } catch (_: Exception) {
+                Thread.sleep(200)
+            }
+        }
+        return false
     }
 
     private fun startStatsPolling() {
@@ -191,6 +243,8 @@ class HoneyProxyVpnService : VpnService() {
     private fun stopTunnel() {
         Log.d(TAG, "Stopping VPN tunnel")
         isRunning = false
+        t2sProcess?.destroy()
+        t2sProcess = null
         sbProcess?.destroy()
         sbProcess = null
         statsPollThread?.interrupt()
