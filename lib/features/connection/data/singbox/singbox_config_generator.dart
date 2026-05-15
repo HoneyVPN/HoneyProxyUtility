@@ -65,6 +65,7 @@ class SingboxConfigGenerator {
           'tag': 'remote-dns',
           ...remoteDnsServer,
           'detour': 'proxy',
+          'domain_strategy': _ipStrategy(s.preferredIpType),
         },
         {
           'tag': 'local-dns',
@@ -436,7 +437,7 @@ class SingboxConfigGenerator {
     final config = {
       'log': _log(settings),
       'dns': _dns(settings.copyWith(enableFakeip: false)),
-      'inbounds': _inboundsForAndroid(),
+      'inbounds': _inboundsForAndroid(settings),
       'outbounds': outbounds,
       'route': _routeForAndroid(settings),
       'experimental': {
@@ -449,12 +450,18 @@ class SingboxConfigGenerator {
     return jsonEncode(config);
   }
 
-  List<Map<String, dynamic>> _inboundsForAndroid() => [
+  List<Map<String, dynamic>> _inboundsForAndroid(AppSettings s) => [
     {
       'type': 'socks',
       'tag': 'socks-in',
-      'listen': '127.0.0.1',
-      'listen_port': 2080,
+      'listen': s.allowLanConnections ? '0.0.0.0' : '127.0.0.1',
+      'listen_port': s.socksPort,
+    },
+    {
+      'type': 'http',
+      'tag': 'http-in',
+      'listen': s.allowLanConnections ? '0.0.0.0' : '127.0.0.1',
+      'listen_port': s.httpPort,
     },
   ];
 
