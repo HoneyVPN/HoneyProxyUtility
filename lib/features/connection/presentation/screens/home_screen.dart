@@ -627,8 +627,10 @@ class _UpdateBannerState extends State<_UpdateBanner> {
   double? _progress;
 
   Future<void> _install() async {
+    final url = widget.info.downloadUrl;
+    if (url.isEmpty) return;
     if (!Platform.isAndroid) {
-      await launchUrl(Uri.parse(widget.info.downloadUrl), mode: LaunchMode.externalApplication);
+      await launchUrl(Uri.parse(url));
       return;
     }
     setState(() => _progress = 0);
@@ -636,7 +638,7 @@ class _UpdateBannerState extends State<_UpdateBanner> {
       final dir = await getTemporaryDirectory();
       final path = '${dir.path}/update.apk';
       await Dio().download(
-        widget.info.downloadUrl,
+        url,
         path,
         onReceiveProgress: (received, total) {
           if (total > 0 && mounted) {
@@ -646,7 +648,7 @@ class _UpdateBannerState extends State<_UpdateBanner> {
       );
       await OpenFile.open(path);
     } catch (_) {
-      await launchUrl(Uri.parse(widget.info.downloadUrl), mode: LaunchMode.externalApplication);
+      await launchUrl(Uri.parse(url));
     } finally {
       if (mounted) setState(() => _progress = null);
     }
