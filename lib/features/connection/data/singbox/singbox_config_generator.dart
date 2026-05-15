@@ -381,7 +381,7 @@ class SingboxConfigGenerator {
   Map<String, dynamic> _route(AppSettings s) {
     final rules = <Map<String, dynamic>>[
       {'action': 'sniff'},
-      if (s.fragmentationEnabled) {'action': 'tls_fragment'},
+      if (s.fragmentationEnabled) {'action': 'route-options', 'tls_fragment': true, 'tls_fragment_fallback_delay': '500ms'},
       {'protocol': 'dns', 'action': 'hijack-dns'},
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
@@ -471,7 +471,7 @@ class SingboxConfigGenerator {
   Map<String, dynamic> _routeForAndroid(AppSettings s) {
     final rules = <Map<String, dynamic>>[
       {'action': 'sniff'},
-      if (s.fragmentationEnabled) {'action': 'tls_fragment'},
+      if (s.fragmentationEnabled) {'action': 'route-options', 'tls_fragment': true, 'tls_fragment_fallback_delay': '500ms'},
       {'protocol': 'dns', 'action': 'hijack-dns'},
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
