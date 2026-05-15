@@ -31,17 +31,6 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
   Future<void> connect(ServerProfileModel server) async {
     if (state.isBusy) return;
 
-    // When switching servers while connected: stop the current tunnel first.
-    // The service uses waitForPortFree to handle port overlap gracefully.
-    if (state.isConnected && _datasource != null) {
-      state = state.copyWith(status: ConnectionStatus.disconnecting);
-      try {
-        await _datasource!.stop();
-      } catch (e) {
-        _log.warning("Error disconnecting before server switch", e);
-      }
-    }
-
     state = state.copyWith(
       status: ConnectionStatus.preparing,
       activeServer: server,

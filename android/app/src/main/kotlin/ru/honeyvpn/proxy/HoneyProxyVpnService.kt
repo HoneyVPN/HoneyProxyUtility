@@ -62,9 +62,11 @@ class HoneyProxyVpnService : VpnService() {
     }
 
     private fun startTunnel(configJson: String) {
-        // Clean up any leftover resources from a previous session (rapid server switch)
+        // Increment generation BEFORE cleanup so old background threads see the new value
+        // immediately and exit without touching shared state.
         if (isRunning || sbProcess != null || t2sPid > 0) {
             Log.d(TAG, "Cleaning up existing session before restart")
+            generation++
             cleanupResources()
         }
 
