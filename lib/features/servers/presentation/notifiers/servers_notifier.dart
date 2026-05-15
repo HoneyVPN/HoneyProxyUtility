@@ -15,7 +15,8 @@ final serversNotifierProvider =
   ServersNotifier.new,
 );
 
-final selectedServerProvider = StateProvider<ServerProfileModel?>((ref) {
+// Read-only computed provider — always reflects isSelected from the server list
+final selectedServerProvider = Provider<ServerProfileModel?>((ref) {
   final servers = ref.watch(serversNotifierProvider).value ?? [];
   if (servers.isEmpty) return null;
   return servers.firstWhere((s) => s.isSelected, orElse: () => servers.first);
@@ -63,12 +64,15 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
 
   Future<void> addFromProxies(List<ParsedProxy> proxies, {String subscriptionId = ''}) async {
     final current = state.value ?? [];
-    final existingHosts = current.map((s) => '${s.host}:${s.port}').toSet();
-    var nextId = DateTime.now().millisecondsSinceEpoch;
+    // Deduplicate by protocol+host+port to avoid false positives from same host on different protocols
+    final existingKeys = current.map((s) => '${s.protocol}:${s.host}:${s.port}').toSet();
+    var nextId = current.isEmpty
+        ? DateTime.now().millisecondsSinceEpoch
+        : current.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
     final newModels = <ServerProfileModel>[];
     for (final p in proxies) {
-      final key = '${p.host}:${p.port}';
-      if (existingHosts.contains(key) && subscriptionId.isEmpty) continue;
+      final key = '\${_protocolTag(p)}:${p.host}:${p.port}';
+      if (existingKeys.contains(key) && subscriptionId.isEmpty) continue;
       newModels.add(ServerProfileModel(
         id: nextId++,
         protocol: _protocolTag(p),
@@ -116,11 +120,17 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
   }
 
   Future<double> testLatency(ServerProfileModel server) async {
-    final pingPort = (server.protocol == 'hy2' || server.protocol == 'tuic') ? 443 : server.port;
+    // TCP connect gives a meaningful latency for TCP-based protocols.
+    // UDP-based protocols (hy2, tuic) cannot be measured via TCP — return -1.
+    final udpOnly = server.protocol == 'hy2' || server.protocol == 'tuic';
+    if (udpOnly) {
+      await updateLatency(server.id, -1);
+      return -1;
+    }
     Socket? sock;
     try {
       final sw = Stopwatch()..start();
-      sock = await Socket.connect(server.host, pingPort,
+      sock = await Socket.connect(server.host, server.port,
           timeout: const Duration(seconds: 5));
       sw.stop();
       final ms = sw.elapsedMilliseconds.toDouble();
@@ -148,7 +158,9 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     // Remove old servers from this subscription
     final kept = current.where((s) => s.subscriptionId != subscriptionId).toList();
     // Add new ones
-    var nextId = DateTime.now().millisecondsSinceEpoch;
+    var nextId = kept.isEmpty
+        ? DateTime.now().millisecondsSinceEpoch
+        : kept.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
     final newModels = proxies.map((p) => ServerProfileModel(
       id: nextId++,
       protocol: _protocolTag(p),

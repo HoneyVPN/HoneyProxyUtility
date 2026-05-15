@@ -31,6 +31,17 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
   Future<void> connect(ServerProfileModel server) async {
     if (state.isBusy) return;
 
+    // When switching servers while connected: stop the current tunnel first.
+    // The service uses waitForPortFree to handle port overlap gracefully.
+    if (state.isConnected && _datasource != null) {
+      state = state.copyWith(status: ConnectionStatus.disconnecting);
+      try {
+        await _datasource!.stop();
+      } catch (e) {
+        _log.warning("Error disconnecting before server switch", e);
+      }
+    }
+
     state = state.copyWith(
       status: ConnectionStatus.preparing,
       activeServer: server,
@@ -44,7 +55,15 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
       }
 
       try {
-        _datasource ??= VpnDatasource(onStatusChanged: _onV2RayStatus);
+        _datasource ??= VpnDatasource(
+          onStatusChanged: _onV2RayStatus,
+          onError: (msg) {
+            state = state.copyWith(
+              status: ConnectionStatus.error,
+              errorMessage: msg,
+            );
+          },
+        );
         await _datasource!.initialize();
       } catch (e) {
         _datasource = null;
@@ -99,7 +118,10 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
         ),
       );
     } else if (vpnState == 'DISCONNECTED') {
-      state = NexConnectionState.initial();
+      // Do not override an error state — the error message must remain visible
+      if (state.status != ConnectionStatus.error) {
+        state = NexConnectionState.initial();
+      }
     } else if (vpnState == 'CONNECTING') {
       state = state.copyWith(status: ConnectionStatus.connecting);
     }

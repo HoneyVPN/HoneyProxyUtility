@@ -41,11 +41,12 @@ final subscriptionsProvider =
 );
 
 class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
+  final _dio = Dio();
   Timer? _autoTimer;
 
   @override
   Future<SubscriptionsState> build() async {
-    ref.onDispose(() => _autoTimer?.cancel());
+    ref.onDispose(() { _autoTimer?.cancel(); _dio.close(force: true); });
     var subs = await _load();
 
     // Ensure built-in HoneyVPN subscription is always present
@@ -185,7 +186,7 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
     try {
       final fetchUrl = kIsWeb ? '$_corsBase${Uri.encodeComponent(sub.url)}' : sub.url;
       // fetchUrl for web: /proxy/?url=<encoded-url>
-      final resp = await Dio().get<String>(
+      final resp = await _dio.get<String>(
         fetchUrl,
         options: Options(
           responseType: ResponseType.plain,

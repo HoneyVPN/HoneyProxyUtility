@@ -49,7 +49,7 @@ class AppSettings {
     this.routingMode = RoutingMode.bypassRU,
     this.connectionMode = ConnectionMode.tunnel,
     this.dnsPreset = DnsPreset.cloudflare,
-    this.customDnsUrl = '',
+    this.customDnsUrl = ',',
     this.fragmentationEnabled = false,
     this.multiplexerEnabled = false,
     this.preferredIpType = IpType.both,
@@ -99,43 +99,55 @@ class AppSettings {
     httpPort: httpPort ?? this.httpPort,
   );
 
+  // Serialize enums by name (string) so adding new enum values never corrupts saved settings.
   Map<String, dynamic> toJson() => {
-    'themeMode': themeMode.index,
-    'routingMode': routingMode.index,
-    'connectionMode': connectionMode.index,
-    'dnsPreset': dnsPreset.index,
+    'themeMode': themeMode.index,        // ThemeMode is from Flutter SDK, keep index
+    'routingMode': routingMode.name,
+    'connectionMode': connectionMode.name,
+    'dnsPreset': dnsPreset.name,
     'customDnsUrl': customDnsUrl,
     'fragmentationEnabled': fragmentationEnabled,
     'multiplexerEnabled': multiplexerEnabled,
-    'preferredIpType': preferredIpType.index,
+    'preferredIpType': preferredIpType.name,
     'allowLanConnections': allowLanConnections,
     'locale': locale,
-    'tunStack': tunStack.index,
+    'tunStack': tunStack.name,
     'blockAds': blockAds,
     'enableFakeip': enableFakeip,
-    'logLevel': logLevel.index,
+    'logLevel': logLevel.name,
     'socksPort': socksPort,
     'httpPort': httpPort,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> m) => AppSettings(
     themeMode: ThemeMode.values[m['themeMode'] as int? ?? 0],
-    routingMode: RoutingMode.values[m['routingMode'] as int? ?? 1],
-    connectionMode: ConnectionMode.values[m['connectionMode'] as int? ?? 0],
-    dnsPreset: DnsPreset.values[m['dnsPreset'] as int? ?? 0],
-    customDnsUrl: m['customDnsUrl'] as String? ?? '',
+    routingMode: _parseEnum(RoutingMode.values, m['routingMode'], RoutingMode.bypassRU),
+    connectionMode: _parseEnum(ConnectionMode.values, m['connectionMode'], ConnectionMode.tunnel),
+    dnsPreset: _parseEnum(DnsPreset.values, m['dnsPreset'], DnsPreset.cloudflare),
+    customDnsUrl: m['customDnsUrl'] as String? ?? ',',
     fragmentationEnabled: m['fragmentationEnabled'] as bool? ?? false,
     multiplexerEnabled: m['multiplexerEnabled'] as bool? ?? false,
-    preferredIpType: IpType.values[m['preferredIpType'] as int? ?? 2],
+    preferredIpType: _parseEnum(IpType.values, m['preferredIpType'], IpType.both),
     allowLanConnections: m['allowLanConnections'] as bool? ?? false,
     locale: m['locale'] as String? ?? 'en',
-    tunStack: TunStack.values[m['tunStack'] as int? ?? 2],
+    tunStack: _parseEnum(TunStack.values, m['tunStack'], TunStack.mixed),
     blockAds: m['blockAds'] as bool? ?? true,
     enableFakeip: m['enableFakeip'] as bool? ?? true,
-    logLevel: LogLevel.values[m['logLevel'] as int? ?? 3],
+    logLevel: _parseEnum(LogLevel.values, m['logLevel'], LogLevel.warn),
     socksPort: m['socksPort'] as int? ?? 2080,
     httpPort: m['httpPort'] as int? ?? 2081,
   );
+
+  // Handles both legacy integer indices and new string names for backward compatibility.
+  static T _parseEnum<T extends Enum>(List<T> values, dynamic raw, T fallback) {
+    if (raw is String) {
+      return values.firstWhere((e) => e.name == raw, orElse: () => fallback);
+    }
+    if (raw is int && raw >= 0 && raw < values.length) {
+      return values[raw];
+    }
+    return fallback;
+  }
 
   static AppSettings fromJsonString(String s) {
     try {
@@ -170,7 +182,7 @@ extension ConnectionModeExt on ConnectionMode {
 
   String get description => switch (this) {
     ConnectionMode.tunnel => 'TUN interface — all apps, no config needed',
-    ConnectionMode.proxy  => '',
+    ConnectionMode.proxy  => ',',
   };
 
   IconData get icon => switch (this) {
@@ -191,7 +203,7 @@ extension DnsPresetExt on DnsPreset {
     DnsPreset.cloudflare => 'https://cloudflare-dns.com/dns-query',
     DnsPreset.google     => 'https://dns.google/dns-query',
     DnsPreset.adguard    => 'https://dns.adguard-dns.com/dns-query',
-    DnsPreset.custom     => '',
+    DnsPreset.custom     => ',',
   };
 
   String get ip => switch (this) {

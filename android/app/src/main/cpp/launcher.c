@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/wait.h>
 #include <android/log.h>
 
 #define TAG "HoneyVPN"
@@ -57,4 +58,16 @@ Java_ru_honeyvpn_proxy_NativeLauncher_forkExecTun2socks(
 
     (*env)->ReleaseStringUTFChars(env, jPath, path);
     return (jint)pid;
+}
+
+/* Reap a child process to prevent zombie. Blocks until the process exits. */
+JNIEXPORT void JNICALL
+Java_ru_honeyvpn_proxy_NativeLauncher_waitForPid(
+    JNIEnv *env, jclass cls, jint pid)
+{
+    if (pid <= 0) return;
+    int ret;
+    do {
+        ret = waitpid((pid_t)pid, NULL, 0);
+    } while (ret < 0 && errno == EINTR);
 }

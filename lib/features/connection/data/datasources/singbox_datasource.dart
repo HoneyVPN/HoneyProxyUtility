@@ -14,13 +14,16 @@ import 'vpn_datasource_windows.dart';
 final _log = Logger('VpnDatasource');
 
 class VpnDatasource {
-  VpnDatasource({required void Function(V2RayStatus) onStatusChanged})
-      : _onStatus = onStatusChanged,
+  VpnDatasource({
+    required void Function(V2RayStatus) onStatusChanged,
+    this.onError,
+  })  : _onStatus = onStatusChanged,
         _windows = (!Platform.isAndroid && !Platform.isIOS)
             ? WindowsVpnDatasource(onStatusChanged: onStatusChanged)
             : null;
 
   final void Function(V2RayStatus) _onStatus;
+  final void Function(String message)? onError;
   final WindowsVpnDatasource? _windows;
   StreamSubscription<dynamic>? _statsSubscription;
 
@@ -74,6 +77,9 @@ class VpnDatasource {
               download: (event['downlinkTotal'] as num? ?? 0).toInt(),
               duration: _formatDuration(event['duration'] as int? ?? 0),
             ));
+          case 'error':
+            final msg = event['message'] as String? ?? 'Unknown VPN error';
+            onError?.call(msg);
           case 'stopped':
             _onStatus(V2RayStatus(state: 'DISCONNECTED'));
         }
