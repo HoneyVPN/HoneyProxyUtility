@@ -57,6 +57,13 @@ class HoneyProxyVpnService : VpnService() {
                 stopTunnel()
                 return START_NOT_STICKY
             }
+            null -> {
+                // Service was restarted by Android (START_STICKY) after being killed.
+                // No config available — stop cleanly so the notification doesn't linger.
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
         }
         return START_NOT_STICKY
     }
@@ -255,10 +262,10 @@ class HoneyProxyVpnService : VpnService() {
             NativeBindings.onVpnStarted()
             startStatsPolling(gen)
 
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             if (generation == gen) {
-                Log.e(TAG, "launchSingboxAndTun2socks error: ${e.message}", e)
-                notifyError(e.message ?: "unknown error", gen)
+                Log.e(TAG, "launchSingboxAndTun2socks fatal: ${t.message}", t)
+                notifyError(t.message ?: "unknown error", gen)
             }
         }
     }
@@ -342,6 +349,9 @@ class HoneyProxyVpnService : VpnService() {
     private fun notifyError(msg: String, gen: Int) {
         if (generation != gen) return  // superseded — don't clobber a newer session
         isRunning = false
+        // Null these out so onDestroy's wasActive check won't double-fire onVpnStopped.
+        sbProcess = null
+        t2sPid = -1
         NativeBindings.onVpnError(msg)
         NativeBindings.onVpnStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)

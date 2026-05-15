@@ -141,7 +141,15 @@ class NativeBindings(
             action = HoneyProxyVpnService.ACTION_START
             putExtra("config_json", configJson)
         }
-        context.startForegroundService(intent)
+        try {
+            context.startForegroundService(intent)
+        } catch (e: Exception) {
+            // ForegroundServiceStartNotAllowedException (Android 12+) if the app
+            // transitions to background at the exact moment the user taps connect.
+            android.util.Log.e("NativeBindings", "startForegroundService failed: ${e.message}", e)
+            onVpnError("Cannot start VPN: ${e.message}")
+            onVpnStopped()
+        }
     }
 
     private fun stopVpn() {
