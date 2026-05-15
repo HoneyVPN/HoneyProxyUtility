@@ -39,16 +39,21 @@ class HoneyProxyVpnService : VpnService() {
     private var t2sPipePfd: ParcelFileDescriptor? = null
     private var statsPollThread: Thread? = null
     private var watchdogThread: Thread? = null
+    @Volatile private var statsConnection: HttpURLConnection? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
                 val configJson = intent.getStringExtra("config_json") ?: return START_NOT_STICKY
                 startTunnel(configJson)
+                return START_STICKY
             }
-            ACTION_STOP -> stopTunnel()
+            ACTION_STOP -> {
+                stopTunnel()
+                return START_NOT_STICKY
+            }
         }
-        return START_REDELIVER_INTENT
+        return START_NOT_STICKY
     }
 
     private fun startTunnel(configJson: String) {
@@ -62,7 +67,7 @@ class HoneyProxyVpnService : VpnService() {
             .addDnsServer("172.19.0.2")
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
-            .setMtu(9000)
+            .setMtu(1500)
             .setBlocking(false)
 
         try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
@@ -70,7 +75,7 @@ class HoneyProxyVpnService : VpnService() {
         tunFd?.close()
         val pfd = builder.establish() ?: run {
             Log.e(TAG, "Failed to establish VPN interface")
-            stopSelf()
+            notifyError("Failed to establish VPN interface")
             return
         }
         tunFd = pfd
@@ -88,7 +93,9 @@ class HoneyProxyVpnService : VpnService() {
 
             val sbPath = "${applicationInfo.nativeLibraryDir}/libsingbox.so"
             if (!File(sbPath).exists()) {
-                Log.e(TAG, "sing-box binary not found"); notifyError("sing-box not found"); return
+                Log.e(TAG, "sing-box binary not found")
+                notifyError("sing-box not found")
+                return
             }
 
             // 1. Wait for SOCKS port to be free (previous instance may still be shutting down)
@@ -112,16 +119,20 @@ class HoneyProxyVpnService : VpnService() {
                 val err = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
                 Log.e(TAG, "sing-box SOCKS5 not ready:\n$err")
                 sbProc.destroyForcibly(); sbProcess = null
-                isRunning = false; NativeBindings.onVpnStopped(); return
+                isRunning = false
+                notifyError("sing-box failed to start: $err")
+                return
             }
             Log.d(TAG, "sing-box SOCKS5 ready on port $SOCKS_PORT")
 
             // 4. Start tun2socks via JNI fork+exec — bypasses Java's FD_CLOEXEC cleanup
             val t2sPath = "${applicationInfo.nativeLibraryDir}/libtun2socks.so"
             if (!File(t2sPath).exists()) {
-                Log.e(TAG, "tun2socks not found"); notifyError("tun2socks not found")
+                Log.e(TAG, "tun2socks not found")
+                notifyError("tun2socks not found")
                 sbProc.destroyForcibly(); sbProcess = null
-                isRunning = false; NativeBindings.onVpnStopped(); return
+                isRunning = false
+                return
             }
 
             val readFdArr = IntArray(1) { -1 }
@@ -130,7 +141,8 @@ class HoneyProxyVpnService : VpnService() {
                 Log.e(TAG, "forkExecTun2socks failed (pid=$pid)")
                 notifyError("tun2socks launch failed")
                 sbProc.destroyForcibly(); sbProcess = null
-                isRunning = false; NativeBindings.onVpnStopped(); return
+                isRunning = false
+                return
             }
             t2sPid = pid
             Log.d(TAG, "tun2socks started PID=$pid: fd=$tunRawFd → socks5://127.0.0.1:$SOCKS_PORT")
@@ -153,7 +165,7 @@ class HoneyProxyVpnService : VpnService() {
                 }.also { it.isDaemon = true; it.start() }
             }
 
-            // 6. Watchdog
+            // 6. Watchdog: restarts stopped callback if either process dies unexpectedly
             watchdogThread = Thread {
                 while (isRunning) {
                     val sbDead = try { sbProc.exitValue(); true } catch (_: IllegalThreadStateException) { false }
@@ -163,6 +175,8 @@ class HoneyProxyVpnService : VpnService() {
                             val err = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
                             Log.e(TAG, "Process died: sb=$sbDead t2s=$t2sDead\n$err")
                             if (!sbDead) sbProc.destroyForcibly()
+                            // Reap zombie after tun2socks exits via pipe EOF
+                            if (t2sDead && pid > 0) NativeLauncher.waitForPid(pid)
                             isRunning = false; sbProcess = null; t2sPid = -1
                             NativeBindings.onVpnStopped()
                         }
@@ -210,19 +224,24 @@ class HoneyProxyVpnService : VpnService() {
             val startMs = System.currentTimeMillis()
             try {
                 val conn = URL("http://127.0.0.1:$CLASH_PORT/traffic").openConnection() as HttpURLConnection
-                conn.connectTimeout = 5000; conn.readTimeout = 0; conn.connect()
-                conn.inputStream.bufferedReader().forEachLine { line ->
-                    if (!isRunning) return@forEachLine
-                    try {
-                        val j = JSONObject(line)
-                        val up = j.optLong("up"); val dn = j.optLong("down")
-                        totalUp += up; totalDown += dn
-                        NativeBindings.pushStats(up, dn, totalUp, totalDown,
-                            (System.currentTimeMillis() - startMs) / 1000)
-                    } catch (_: Exception) {}
+                conn.connectTimeout = 5000; conn.readTimeout = 0
+                statsConnection = conn
+                conn.connect()
+                conn.inputStream.bufferedReader().use { reader ->
+                    var line = reader.readLine()
+                    while (line != null && isRunning) {
+                        try {
+                            val j = JSONObject(line)
+                            val up = j.optLong("up"); val dn = j.optLong("down")
+                            totalUp += up; totalDown += dn
+                            NativeBindings.pushStats(up, dn, totalUp, totalDown,
+                                (System.currentTimeMillis() - startMs) / 1000)
+                        } catch (_: Exception) {}
+                        line = reader.readLine()
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Clash API unavailable: ${e.message}")
+                if (isRunning) Log.w(TAG, "Clash API unavailable: ${e.message}")
                 val t0 = System.currentTimeMillis()
                 while (isRunning) {
                     try {
@@ -230,26 +249,41 @@ class HoneyProxyVpnService : VpnService() {
                         Thread.sleep(1000)
                     } catch (_: InterruptedException) { break }
                 }
+            } finally {
+                statsConnection = null
             }
         }.also { it.isDaemon = true; it.start() }
     }
 
     private fun stopTunnel() {
+        // Guard against double-stop (e.g. onRevoke followed by onDestroy)
+        if (!isRunning && sbProcess == null && t2sPid < 0) return
         Log.d(TAG, "Stopping VPN tunnel")
         isRunning = false
 
-        // Kill tun2socks (forked via JNI, tracked by PID)
+        // Disconnect Clash API stream — unblocks the blocking readLine() in the stats thread
+        try { statsConnection?.disconnect() } catch (_: Exception) {}
+        statsConnection = null
+
+        // Kill tun2socks and reap zombie in background — avoids blocking the main thread
         val pid = t2sPid
-        if (pid > 0) { android.os.Process.killProcess(pid); t2sPid = -1 }
+        if (pid > 0) {
+            android.os.Process.killProcess(pid)
+            Thread { NativeLauncher.waitForPid(pid) }.also { it.isDaemon = true; it.start() }
+            t2sPid = -1
+        }
 
         // Close pipe read end (unblocks the reader thread)
         val pipePfd = t2sPipePfd; t2sPipePfd = null
         try { pipePfd?.close() } catch (_: Exception) {}
 
-        // Kill sing-box with SIGKILL and wait for it to exit (prevents port 2080 conflict on reconnect)
+        // Kill sing-box; wait in background so main thread is not blocked
         val sb = sbProcess; sbProcess = null
         sb?.destroyForcibly()
-        try { sb?.waitFor(3, TimeUnit.SECONDS) } catch (_: Exception) {}
+        if (sb != null) {
+            Thread { try { sb.waitFor(5, TimeUnit.SECONDS) } catch (_: Exception) {} }
+                .also { it.isDaemon = true; it.start() }
+        }
 
         statsPollThread?.interrupt(); statsPollThread = null
         watchdogThread?.interrupt(); watchdogThread = null
@@ -261,12 +295,20 @@ class HoneyProxyVpnService : VpnService() {
     }
 
     private fun notifyError(msg: String) {
-        isRunning = false; NativeBindings.onVpnStopped()
-        stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+        isRunning = false
+        NativeBindings.onVpnError(msg)
+        NativeBindings.onVpnStopped()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onRevoke() { super.onRevoke(); stopTunnel() }
-    override fun onDestroy() { stopTunnel(); super.onDestroy() }
+
+    // onRevoke() may be called before onDestroy() — guard prevents double-stop
+    override fun onDestroy() {
+        if (isRunning || sbProcess != null || t2sPid > 0) stopTunnel()
+        super.onDestroy()
+    }
 
     private fun buildNotification(status: String): Notification {
         createNotificationChannel()

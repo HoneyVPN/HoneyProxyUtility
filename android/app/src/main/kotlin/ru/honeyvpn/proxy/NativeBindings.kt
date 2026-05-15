@@ -36,6 +36,10 @@ class NativeBindings(
             instance?.eventSink?.success(mapOf("event" to "stopped"))
         }
 
+        fun onVpnError(message: String) = mainHandler.post {
+            instance?.eventSink?.success(mapOf("event" to "error", "message" to message))
+        }
+
         fun pushStats(
             uplink: Long, downlink: Long,
             uplinkTotal: Long, downlinkTotal: Long,
@@ -116,7 +120,9 @@ class NativeBindings(
     }
 
     fun destroy() {
-        instance = null
+        // Only clear the singleton if it still points to this instance.
+        // Prevents a newly created instance from being nulled out during Activity recreation.
+        if (instance === this) instance = null
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
         nativeChannel.setMethodCallHandler(null)
