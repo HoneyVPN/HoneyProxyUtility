@@ -15,10 +15,12 @@ class NativeBindings(
     private val requestVpnPermission: (callback: (Boolean) -> Unit) -> Unit,
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
-    private val methodChannel = MethodChannel(messenger, "ru.honeyvpn.proxy/vpn")
-    private val eventChannel  = EventChannel(messenger, "ru.honeyvpn.proxy/vpn_stats")
-    private val nativeChannel = MethodChannel(messenger, "ru.honeyvpn.proxy/native")
+    private val methodChannel  = MethodChannel(messenger, "ru.honeyvpn.proxy/vpn")
+    private val eventChannel   = EventChannel(messenger, "ru.honeyvpn.proxy/vpn_stats")
+    private val nativeChannel  = MethodChannel(messenger, "ru.honeyvpn.proxy/native")
+    private val deeplinkChannel = EventChannel(messenger, "ru.honeyvpn.proxy/deeplink")
     private var eventSink: EventChannel.EventSink? = null
+    private var deeplinkSink: EventChannel.EventSink? = null
 
     companion object {
         private var instance: NativeBindings? = null
@@ -38,6 +40,17 @@ class NativeBindings(
 
         fun onVpnError(message: String) = mainHandler.post {
             instance?.eventSink?.success(mapOf("event" to "error", "message" to message))
+        }
+
+        @Volatile var pendingDeepLink: String? = null
+
+        fun onDeepLink(url: String) = mainHandler.post {
+            val sink = instance?.deeplinkSink
+            if (sink != null) {
+                sink.success(url)
+            } else {
+                pendingDeepLink = url
+            }
         }
 
         fun pushStats(
@@ -66,6 +79,13 @@ class NativeBindings(
                 else -> result.notImplemented()
             }
         }
+        deeplinkChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                deeplinkSink = events
+                pendingDeepLink?.let { url -> events?.success(url); pendingDeepLink = null }
+            }
+            override fun onCancel(arguments: Any?) { deeplinkSink = null }
+        })
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -91,6 +111,23 @@ class NativeBindings(
                     "uplinkTotal" to 0L, "downlinkTotal" to 0L,
                     "duration" to 0L,
                 ))
+            }
+            "pingHost" -> {
+                val host = call.argument<String>("host") ?: run {
+                    result.error("INVALID_ARGS", "Missing host", null); return
+                }
+                val timeout = call.argument<Int>("timeout") ?: 3000
+                Thread {
+                    try {
+                        val addr = java.net.InetAddress.getByName(host)
+                        val start = System.currentTimeMillis()
+                        val reachable = addr.isReachable(timeout)
+                        val elapsed = System.currentTimeMillis() - start
+                        mainHandler.post { result.success(if (reachable) elapsed else -1L) }
+                    } catch (e: Exception) {
+                        mainHandler.post { result.success(-1L) }
+                    }
+                }.start()
             }
             else -> result.notImplemented()
         }
@@ -126,5 +163,6 @@ class NativeBindings(
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
         nativeChannel.setMethodCallHandler(null)
+        deeplinkChannel.setStreamHandler(null)
     }
 }

@@ -3,6 +3,7 @@ package ru.honeyvpn.proxy
 import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
+import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -13,6 +14,25 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val VPN_PERMISSION_REQUEST = 1001
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        handleDeepLinkIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLinkIntent(intent)
+    }
+
+    private fun handleDeepLinkIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "honeyvpn" && uri.host == "import") {
+            val url = uri.getQueryParameter("url") ?: return
+            NativeBindings.onDeepLink(url)
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
