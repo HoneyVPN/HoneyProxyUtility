@@ -168,10 +168,12 @@ class HoneyProxyVpnService : VpnService() {
 
             val sbOutput = StringBuilder()
             Thread {
-                sbProc.inputStream.bufferedReader().forEachLine { line ->
-                    Log.d(TAG, "sb: $line")
-                    synchronized(sbOutput) { sbOutput.appendLine(line) }
-                }
+                try {
+                    sbProc.inputStream.bufferedReader().forEachLine { line ->
+                        Log.d(TAG, "sb: $line")
+                        synchronized(sbOutput) { sbOutput.appendLine(line) }
+                    }
+                } catch (_: Exception) {}
             }.also { it.isDaemon = true; it.start() }
 
             if (!waitForPort("127.0.0.1", SOCKS_PORT, 10_000)) {
