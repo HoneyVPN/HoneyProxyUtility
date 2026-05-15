@@ -482,6 +482,12 @@ class SingboxConfigGenerator {
       {'action': 'sniff'},
       if (s.fragmentationEnabled) {'action': 'route-options', 'tls_fragment': true, 'tls_fragment_fallback_delay': '500ms'},
       {'protocol': 'dns', 'action': 'hijack-dns'},
+      // Android "Private DNS: Auto" probes DoT (port 853) on the VPN DNS address
+      // (172.19.0.2). Nothing listens there, so the ip_is_private→direct rule would
+      // send it to a nonexistent host and time out after 5 seconds on every VPN start.
+      // Rejecting immediately makes Android fall back to regular UDP DNS (port 53)
+      // without delay.
+      {'ip_cidr': ['172.19.0.2/32'], 'port': [853], 'action': 'reject'},
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
 
