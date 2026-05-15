@@ -72,6 +72,8 @@ class HoneyProxyVpnService : VpnService() {
 
         val myGen = ++generation
         Log.d(TAG, "Starting VPN tunnel (gen=$myGen)")
+
+        try {
         startForeground(NOTIFICATION_ID, buildNotification("Подключение..."))
 
         val builder = Builder()
@@ -99,6 +101,10 @@ class HoneyProxyVpnService : VpnService() {
         isRunning = true
         Thread { launchSingboxAndTun2socks(configJson, rawFd, myGen) }
             .also { it.isDaemon = true; it.start() }
+        } catch (e: Exception) {
+            Log.e(TAG, "startTunnel error: ${e.message}", e)
+            if (generation == myGen) notifyError(e.message ?: "startup error", myGen)
+        }
     }
 
     /** Kills all running child processes and releases resources. Does not affect service lifecycle. */
@@ -127,7 +133,8 @@ class HoneyProxyVpnService : VpnService() {
 
         statsPollThread?.interrupt(); statsPollThread = null
         watchdogThread?.interrupt(); watchdogThread = null
-        try { tunFd?.close(); tunFd = null } catch (_: Exception) {}
+        val tunSnapshot = tunFd; tunFd = null
+        try { tunSnapshot?.close() } catch (_: Exception) {}
     }
 
     private fun launchSingboxAndTun2socks(configJson: String, tunRawFd: Int, gen: Int) {
@@ -330,7 +337,10 @@ class HoneyProxyVpnService : VpnService() {
     override fun onRevoke() { super.onRevoke(); stopTunnel() }
 
     override fun onDestroy() {
-        if (isRunning || sbProcess != null || t2sPid > 0) stopTunnel()
+        val wasActive = isRunning || sbProcess != null || t2sPid > 0
+        generation++
+        cleanupResources()
+        if (wasActive) try { NativeBindings.onVpnStopped() } catch (ignored: Exception) {}
         super.onDestroy()
     }
 

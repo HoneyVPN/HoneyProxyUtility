@@ -32,8 +32,8 @@ class ConnectButton extends ConsumerWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOut,
-        width: 128,
-        height: 128,
+        width: 88,
+        height: 88,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: color.withOpacity(0.10),
@@ -62,7 +62,7 @@ class ConnectButton extends ConsumerWidget {
             : Center(
                 child: Icon(
                   Icons.power_settings_new_rounded,
-                  size: 48,
+                  size: 36,
                   color: color,
                 ),
               ),
