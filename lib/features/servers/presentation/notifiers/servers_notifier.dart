@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io' show Socket;
 
+import 'package:flutter/services.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -119,28 +121,40 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     state = AsyncData(updated);
   }
 
+  static const _vpnChannel = MethodChannel('ru.honeyvpn.proxy/vpn');
+
   Future<double> testLatency(ServerProfileModel server) async {
-    // TCP connect gives a meaningful latency for TCP-based protocols.
-    // UDP-based protocols (hy2, tuic) cannot be measured via TCP — return -1.
     final udpOnly = server.protocol == 'hy2' || server.protocol == 'tuic';
-    if (udpOnly) {
-      await updateLatency(server.id, -1);
-      return -1;
-    }
+    final ms = udpOnly
+        ? await _pingIcmp(server.host)
+        : await _pingTcp(server.host, server.port);
+    await updateLatency(server.id, ms);
+    return ms;
+  }
+
+  Future<double> _pingTcp(String host, int port) async {
     Socket? sock;
     try {
       final sw = Stopwatch()..start();
-      sock = await Socket.connect(server.host, server.port,
-          timeout: const Duration(seconds: 5));
+      sock = await Socket.connect(host, port, timeout: const Duration(seconds: 5));
       sw.stop();
-      final ms = sw.elapsedMilliseconds.toDouble();
-      await updateLatency(server.id, ms);
-      return ms;
+      return sw.elapsedMilliseconds.toDouble();
     } catch (_) {
-      await updateLatency(server.id, -1);
       return -1;
     } finally {
       await sock?.close();
+    }
+  }
+
+  Future<double> _pingIcmp(String host) async {
+    try {
+      final ms = await _vpnChannel.invokeMethod<int>('pingHost', {
+        'host': host,
+        'timeout': 3000,
+      });
+      return ms?.toDouble() ?? -1.0;
+    } catch (_) {
+      return -1.0;
     }
   }
 
