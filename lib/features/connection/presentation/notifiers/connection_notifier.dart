@@ -129,6 +129,7 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
     } catch (e) {
       _log.warning('Error during disconnect', e);
     }
+    _datasource = null;
     state = NexConnectionState.initial();
   }
 
@@ -146,6 +147,13 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
         ),
       );
     } else if (vpnState == 'DISCONNECTED') {
+      // During an active server switch the old session's watchdog can post a
+      // stale "stopped" event that races with the new connection being set up.
+      // Ignore it — the new session will send its own "started" or "error".
+      if (state.status == ConnectionStatus.preparing ||
+          state.status == ConnectionStatus.connecting) {
+        return;
+      }
       // Do not override an error state — the error message must remain visible
       if (state.status != ConnectionStatus.error) {
         state = NexConnectionState.initial();
