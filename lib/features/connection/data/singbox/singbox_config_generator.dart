@@ -12,7 +12,13 @@ class SingboxConfigGenerator {
 
   String generate(ParsedProxy proxy, AppSettings settings) {
     final proxyOut = _outbound(proxy);
-    if (settings.multiplexerEnabled) {
+    // Hysteria2 and TUIC have their own built-in multiplexing; WireGuard does not
+    // support application-layer smux. Adding our smux layer on top of these would
+    // cause the server to reject the connection.
+    final supportsSmux = proxy is! Hysteria2Config &&
+        proxy is! TuicConfig &&
+        proxy is! WireGuardConfig;
+    if (settings.multiplexerEnabled && supportsSmux) {
       proxyOut['multiplex'] = {
         'enabled': true,
         'protocol': 'smux',
@@ -419,7 +425,10 @@ class SingboxConfigGenerator {
 
   String generateForAndroid(ParsedProxy proxy, AppSettings settings) {
     final proxyOut = _outbound(proxy);
-    if (settings.multiplexerEnabled) {
+    final supportsSmux = proxy is! Hysteria2Config &&
+        proxy is! TuicConfig &&
+        proxy is! WireGuardConfig;
+    if (settings.multiplexerEnabled && supportsSmux) {
       proxyOut['multiplex'] = {
         'enabled': true,
         'protocol': 'smux',
@@ -482,6 +491,9 @@ class SingboxConfigGenerator {
       rules.add({'rule_set': 'ru-blocked',           'outbound': 'proxy'});
       rules.add({'rule_set': 'ru-blocked-community', 'outbound': 'proxy'});
       rules.add({'rule_set': 're-filter',            'outbound': 'proxy'});
+      // Russian IPv6 → proxy: Android devices commonly lack IPv6 direct connectivity,
+      // causing "network is unreachable" errors. Route Russian IPv6 via proxy instead.
+      rules.add({'rule_set': 'ru', 'ip_version': 6, 'outbound': 'proxy'});
       rules.add({'rule_set': 'ru', 'outbound': 'direct'});
       ruleSets.addAll([
         _ruleSet('ru-blocked',           'ru-blocked.srs'),
