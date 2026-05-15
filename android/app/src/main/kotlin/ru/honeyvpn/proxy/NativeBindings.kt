@@ -105,6 +105,9 @@ class NativeBindings(
             "requestPermission" -> {
                 requestVpnPermission { granted -> result.success(granted) }
             }
+            "checkStatus" -> {
+                result.success(HoneyProxyVpnService.isRunning)
+            }
             "getStats" -> {
                 result.success(mapOf(
                     "uplink" to 0L, "downlink" to 0L,

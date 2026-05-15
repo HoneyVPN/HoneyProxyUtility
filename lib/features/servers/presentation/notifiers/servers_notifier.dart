@@ -73,7 +73,7 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
         : current.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
     final newModels = <ServerProfileModel>[];
     for (final p in proxies) {
-      final key = '\${_protocolTag(p)}:${p.host}:${p.port}';
+      final key = '${_protocolTag(p)}:${p.host}:${p.port}';
       if (existingKeys.contains(key) && subscriptionId.isEmpty) continue;
       newModels.add(ServerProfileModel(
         id: nextId++,

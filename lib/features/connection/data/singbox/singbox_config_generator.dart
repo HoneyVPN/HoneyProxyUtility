@@ -47,10 +47,13 @@ class SingboxConfigGenerator {
   };
 
   Map<String, dynamic> _dns(AppSettings s) {
+    // DNS-over-HTTPS (DoH) is used instead of DoT because DoT (port 853) long-lived
+    // TLS connections get EOF through many proxy servers, causing the "read response: EOF"
+    // errors visible in sing-box logs. DoH over HTTP/2 is more reliable through proxies.
     final remoteDnsServer = switch (s.dnsPreset) {
-      DnsPreset.cloudflare => {'type': 'tls', 'server': '1.1.1.1'},
-      DnsPreset.google     => {'type': 'tls', 'server': '8.8.8.8'},
-      DnsPreset.adguard    => {'type': 'tls', 'server': '94.140.14.14'},
+      DnsPreset.cloudflare => {'type': 'https', 'server': '1.1.1.1', 'path': '/dns-query'},
+      DnsPreset.google     => {'type': 'https', 'server': '8.8.8.8', 'path': '/dns-query'},
+      DnsPreset.adguard    => {'type': 'https', 'server': '94.140.14.14', 'path': '/dns-query'},
       DnsPreset.custom     => _parseDnsAddress(s.customDnsUrl),
     };
 

@@ -235,7 +235,14 @@ class HoneyProxyVpnService : VpnService() {
                             if (!sbDead) sbProc.destroyForcibly()
                             if (t2sDead && pid > 0) NativeLauncher.waitForPid(pid)
                             isRunning = false; sbProcess = null; t2sPid = -1
+                            // Close TUN fd that would otherwise leak until GC
+                            val tunSnapshot = tunFd; tunFd = null
+                            try { tunSnapshot?.close() } catch (_: Exception) {}
                             NativeBindings.onVpnStopped()
+                            // Stop the zombie foreground service — without this the notification
+                            // stays visible ("Подключено") even though VPN is dead.
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
                         }
                         return@Thread
                     }
@@ -316,7 +323,14 @@ class HoneyProxyVpnService : VpnService() {
     }
 
     private fun stopTunnel() {
-        if (!isRunning && sbProcess == null && t2sPid < 0) return
+        val nothingToKill = !isRunning && sbProcess == null && t2sPid < 0
+        if (nothingToKill) {
+            // Watchdog already cleaned up processes — service might still be a foreground
+            // zombie. Ensure it stops so the notification disappears.
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         Log.d(TAG, "Stopping VPN tunnel")
         generation++  // invalidate all background threads from previous connections
         cleanupResources()

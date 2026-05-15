@@ -44,15 +44,23 @@ class NexConnectionState {
     status: ConnectionStatus.disconnected,
   );
 
+  // Sentinel used by copyWith to distinguish "not provided" from explicit null,
+  // allowing callers to clear activeServer / errorMessage back to null.
+  static const Object _kAbsent = Object();
+
   NexConnectionState copyWith({
     ConnectionStatus? status,
-    ServerProfileModel? activeServer,
-    String? errorMessage,
+    Object? activeServer = _kAbsent,
+    Object? errorMessage = _kAbsent,
     VpnStats? stats,
   }) => NexConnectionState(
     status: status ?? this.status,
-    activeServer: activeServer ?? this.activeServer,
-    errorMessage: errorMessage ?? this.errorMessage,
+    activeServer: identical(activeServer, _kAbsent)
+        ? this.activeServer
+        : activeServer as ServerProfileModel?,
+    errorMessage: identical(errorMessage, _kAbsent)
+        ? this.errorMessage
+        : errorMessage as String?,
     stats: stats ?? this.stats,
   );
 
