@@ -49,7 +49,7 @@ class AppSettings {
     this.routingMode = RoutingMode.bypassRU,
     this.connectionMode = ConnectionMode.tunnel,
     this.dnsPreset = DnsPreset.cloudflare,
-    this.customDnsUrl = ',',
+    this.customDnsUrl = '',
     this.fragmentationEnabled = false,
     this.multiplexerEnabled = false,
     this.preferredIpType = IpType.both,
@@ -124,7 +124,7 @@ class AppSettings {
     routingMode: _parseEnum(RoutingMode.values, m['routingMode'], RoutingMode.bypassRU),
     connectionMode: _parseEnum(ConnectionMode.values, m['connectionMode'], ConnectionMode.tunnel),
     dnsPreset: _parseEnum(DnsPreset.values, m['dnsPreset'], DnsPreset.cloudflare),
-    customDnsUrl: m['customDnsUrl'] as String? ?? ',',
+    customDnsUrl: m['customDnsUrl'] as String? ?? '',
     fragmentationEnabled: m['fragmentationEnabled'] as bool? ?? false,
     multiplexerEnabled: m['multiplexerEnabled'] as bool? ?? false,
     preferredIpType: _parseEnum(IpType.values, m['preferredIpType'], IpType.both),
@@ -182,7 +182,7 @@ extension ConnectionModeExt on ConnectionMode {
 
   String get description => switch (this) {
     ConnectionMode.tunnel => 'TUN interface — all apps, no config needed',
-    ConnectionMode.proxy  => ',',
+    ConnectionMode.proxy  => 'SOCKS5/HTTP proxy on localhost:2080',
   };
 
   IconData get icon => switch (this) {
