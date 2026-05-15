@@ -9,6 +9,7 @@ import '../../domain/entities/connection_state.dart';
 import '../../../converter/data/parsers/link_dispatcher.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../servers/data/models/server_profile_model.dart';
+import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../settings/presentation/notifiers/settings_notifier.dart';
 import '../../../settings/data/models/app_settings.dart';
 
@@ -25,7 +26,45 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
   @override
   NexConnectionState build() {
     ref.onDispose(() => _datasource?.dispose());
+    _restoreIfRunning();
     return NexConnectionState.initial();
+  }
+
+  /// On app launch, checks whether the native VPN service is already running
+  /// (e.g. the user closed and reopened the app while connected). If so,
+  /// re-attaches the stats listener and marks the state as connected so the
+  /// UI immediately reflects the real situation.
+  Future<void> _restoreIfRunning() async {
+    try {
+      final probe = VpnDatasource(
+        onStatusChanged: _onV2RayStatus,
+        onError: (msg) {
+          state = state.copyWith(
+            status: ConnectionStatus.error,
+            errorMessage: msg,
+          );
+        },
+      );
+      final running = await probe.checkRunning();
+      // Guard: if connect() was called while we awaited the platform channel,
+      // _datasource is already set — don't overwrite it with the probe.
+      if (!running || _datasource != null) {
+        probe.dispose();
+        return;
+      }
+      _datasource = probe;
+      _datasource!.reattach();
+      // selectedServerProvider reads from persisted SharedPreferences — it may
+      // return null while ServersNotifier is still loading, which is fine; the
+      // home screen reads selectedServerProvider independently.
+      final server = ref.read(selectedServerProvider);
+      state = NexConnectionState(
+        status: ConnectionStatus.connected,
+        activeServer: server,
+      );
+    } catch (e) {
+      _log.warning('Failed to restore VPN state on startup', e);
+    }
   }
 
   Future<void> connect(ServerProfileModel server) async {

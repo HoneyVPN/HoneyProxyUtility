@@ -98,6 +98,23 @@ class VpnDatasource {
     return '$h:$m:$s';
   }
 
+  /// Returns true if the native VPN service reports it is currently running.
+  /// Used on app launch to restore connection state without calling [start].
+  Future<bool> checkRunning() async {
+    if (!_isMobile) return false;
+    try {
+      return await _vpnChannel.invokeMethod<bool>('checkStatus') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Re-subscribes to the stats EventChannel without starting a new VPN session.
+  /// Call after [checkRunning] returns true to restore the live stats stream.
+  void reattach() {
+    if (_isMobile) _listenToStats();
+  }
+
   Future<void> stop() async {
     if (_isMobile) {
       await _statsSubscription?.cancel();
