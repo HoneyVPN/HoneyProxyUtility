@@ -6,7 +6,6 @@ class SubscriptionModel {
   final String name;
   final DateTime? lastUpdated;
   final int serverCount;
-  final bool autoRefresh;
   final int updateIntervalHours; // 0 = manual only; 1 / 6 / 12 / 24
 
   const SubscriptionModel({
@@ -15,7 +14,6 @@ class SubscriptionModel {
     required this.name,
     this.lastUpdated,
     this.serverCount = 0,
-    this.autoRefresh = false,
     this.updateIntervalHours = 0,
   });
 
@@ -23,7 +21,6 @@ class SubscriptionModel {
     String? name,
     DateTime? lastUpdated,
     int? serverCount,
-    bool? autoRefresh,
     int? updateIntervalHours,
   }) => SubscriptionModel(
     id: id,
@@ -31,7 +28,6 @@ class SubscriptionModel {
     name: name ?? this.name,
     lastUpdated: lastUpdated ?? this.lastUpdated,
     serverCount: serverCount ?? this.serverCount,
-    autoRefresh: autoRefresh ?? this.autoRefresh,
     updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
   );
 
@@ -48,7 +44,6 @@ class SubscriptionModel {
     'name': name,
     'lastUpdated': lastUpdated?.toIso8601String(),
     'serverCount': serverCount,
-    'autoRefresh': autoRefresh,
     'updateIntervalHours': updateIntervalHours,
   };
 
@@ -58,7 +53,6 @@ class SubscriptionModel {
     name: (m['name'] as String?) ?? '',
     lastUpdated: m['lastUpdated'] != null ? DateTime.tryParse(m['lastUpdated'] as String) : null,
     serverCount: (m['serverCount'] as int?) ?? 0,
-    autoRefresh: (m['autoRefresh'] as bool?) ?? false,
     updateIntervalHours: (m['updateIntervalHours'] as int?) ?? 0,
   );
 

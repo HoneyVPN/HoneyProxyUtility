@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -124,6 +125,30 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: notifier.setAllowLan,
           ),
 
+          _SwitchTile(
+            icon: Icons.block_outlined,
+            title: s.blockAdsTitle,
+            subtitle: s.blockAdsSubtitle,
+            value: settings.blockAds,
+            onChanged: notifier.setBlockAds,
+          ),
+
+          _SwitchTile(
+            icon: Icons.dns_outlined,
+            title: s.fakeipTitle,
+            subtitle: s.fakeipSubtitle,
+            value: settings.enableFakeip,
+            onChanged: notifier.setFakeip,
+          ),
+
+          if (!kIsWeb && Platform.isAndroid)
+            _SettingsTile(
+              icon: Icons.layers_outlined,
+              title: s.tunStackTitle,
+              subtitle: s.tunStackSubtitle(settings.tunStack.label),
+              trailing: _TunStackToggle(current: settings.tunStack, onChanged: notifier.setTunStack),
+            ),
+
           // ── Advanced ─────────────────────────────────────────────────────
           const Divider(height: 8),
           _SectionHeader(s.advancedSection),
@@ -132,6 +157,18 @@ class SettingsScreen extends ConsumerWidget {
             title: s.logsTitle,
             subtitle: s.logsSubtitle,
             onTap: () => context.push('/settings/log'),
+          ),
+          _SettingsTile(
+            icon: Icons.filter_list_outlined,
+            title: s.logLevelTitle,
+            subtitle: settings.logLevel.label,
+            trailing: _LogLevelMenu(current: settings.logLevel, onChanged: notifier.setLogLevel),
+          ),
+          _SettingsTile(
+            icon: Icons.settings_ethernet_outlined,
+            title: s.portsTitle,
+            subtitle: 'SOCKS ${settings.socksPort}  ·  HTTP ${settings.httpPort}',
+            onTap: () => _showPortsDialog(context, ref, settings, notifier, s),
           ),
           _SettingsTile(
             icon: Icons.link_outlined,
@@ -163,6 +200,48 @@ class SettingsScreen extends ConsumerWidget {
     ThemeMode.light  => s.themeLight,
     ThemeMode.dark   => s.themeDark,
   };
+
+  void _showPortsDialog(BuildContext context, WidgetRef ref, AppSettings settings, SettingsNotifier notifier, S s) {
+    final socksCtrl = TextEditingController(text: settings.socksPort.toString());
+    final httpCtrl  = TextEditingController(text: settings.httpPort.toString());
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.portsTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: socksCtrl,
+              decoration: const InputDecoration(labelText: 'SOCKS5 Port'),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: httpCtrl,
+              decoration: const InputDecoration(labelText: 'HTTP Port'),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.cancelButton)),
+          FilledButton(
+            onPressed: () {
+              final socks = int.tryParse(socksCtrl.text) ?? settings.socksPort;
+              final http  = int.tryParse(httpCtrl.text)  ?? settings.httpPort;
+              if (socks > 0 && socks < 65536) notifier.setSocksPort(socks);
+              if (http  > 0 && http  < 65536) notifier.setHttpPort(http);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── Theme toggle ──────────────────────────────────────────────────────────────
@@ -350,4 +429,73 @@ class _SwitchTile extends StatelessWidget {
     dense: true,
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
   );
+}
+
+// ── TUN stack toggle ──────────────────────────────────────────────────────────
+
+class _TunStackToggle extends StatelessWidget {
+  final TunStack current;
+  final ValueChanged<TunStack> onChanged;
+  const _TunStackToggle({required this.current, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SegmentedButton<TunStack>(
+      segments: const [
+        ButtonSegment(value: TunStack.system, label: Text('Sys',    style: TextStyle(fontSize: 11))),
+        ButtonSegment(value: TunStack.mixed,  label: Text('Mixed',  style: TextStyle(fontSize: 11))),
+        ButtonSegment(value: TunStack.gvisor, label: Text('gVisor', style: TextStyle(fontSize: 11))),
+      ],
+      selected: {current},
+      onSelectionChanged: (sel) => onChanged(sel.first),
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        side: WidgetStateProperty.all(BorderSide(color: cs.outline.withOpacity(0.25))),
+      ),
+      showSelectedIcon: false,
+    );
+  }
+}
+
+// ── Log level menu ────────────────────────────────────────────────────────────
+
+class _LogLevelMenu extends StatelessWidget {
+  final LogLevel current;
+  final ValueChanged<LogLevel> onChanged;
+  const _LogLevelMenu({required this.current, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return PopupMenuButton<LogLevel>(
+      tooltip: 'Log level',
+      initialValue: current,
+      onSelected: onChanged,
+      itemBuilder: (_) => LogLevel.values.map((l) => PopupMenuItem(
+        value: l,
+        child: Row(
+          children: [
+            Icon(Icons.circle, size: 8,
+              color: l == LogLevel.error ? NexColors.error
+                   : l == LogLevel.warn  ? NexColors.connecting
+                   : cs.onSurface.withOpacity(0.4)),
+            const SizedBox(width: 8),
+            Text(l.label),
+          ],
+        ),
+      )).toList(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(current.label, style: TextStyle(fontSize: 12, color: cs.onSurface)),
+            Icon(Icons.arrow_drop_down, size: 18, color: cs.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
 }

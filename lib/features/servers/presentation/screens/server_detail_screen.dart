@@ -5,7 +5,6 @@ import '../../data/models/server_profile_model.dart';
 import '../notifiers/servers_notifier.dart';
 import '../widgets/protocol_chip.dart';
 import '../widgets/latency_badge.dart';
-import '../../../../bootstrap.dart';
 
 class ServerDetailScreen extends ConsumerWidget {
   final String id;

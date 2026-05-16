@@ -51,9 +51,18 @@ jobs:
       - name: Rename APKs
         run: |
           TAG=${{ github.ref_name }}
-          for f in build/app/outputs/flutter-apk/app-direct-*-release.apk; do
+          # find across both flutter-apk/ and Gradle output dirs, move to flutter-apk/
+          outdir="build/app/outputs/flutter-apk"
+          mkdir -p "$outdir"
+          mapfile -t files < <(find build/app/outputs -name "app-direct-*-release.apk" 2>/dev/null)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "ERROR: No APKs found. Build tree:"
+            find build/app/outputs -name "*.apk" 2>/dev/null || echo "(none)"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
             base=$(basename "$f" .apk)
-            mv "$f" "build/app/outputs/flutter-apk/HoneyProxyUtility-${TAG}-${base#app-direct-}.apk"
+            mv "$f" "$outdir/HoneyProxyUtility-${TAG}-${base#app-direct-}.apk"
           done
 
       - name: Deploy APK to honeyvpn.ru

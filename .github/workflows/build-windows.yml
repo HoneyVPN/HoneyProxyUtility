@@ -70,7 +70,11 @@ jobs:
         run: choco install innosetup --yes --no-progress
 
       - name: Build installer
-        run: iscc windows\installer.iss
+        shell: powershell
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart("v")
+          if ($ver -eq "${{ github.ref_name }}") { $ver = "0.0.0" }
+          iscc windows\installer.iss "/DAppVer=$ver"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
