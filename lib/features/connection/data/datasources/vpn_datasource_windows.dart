@@ -376,11 +376,6 @@ class WindowsVpnDatasource {
         _remoteRuleSet('ru',                   'ru.srs'),
       ]);
     }
-    if (s.blockAds) {
-      routeRules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
-      ruleSets.add(_remoteRuleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
-    }
-
     return {
       'log': {'level': s.logLevel.name},
       'experimental': {

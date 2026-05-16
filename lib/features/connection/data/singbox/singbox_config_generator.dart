@@ -55,7 +55,6 @@ class SingboxConfigGenerator {
       ],
       'rules': [
         ...rules,
-        if (s.blockAds) {'rule_set': 'geosite-category-ads-all', 'action': 'reject'},
         if (s.enableFakeip) {'query_type': ['A', 'AAAA'], 'server': 'fakeip-dns'},
       ],
       'final': 'remote-dns',
@@ -407,11 +406,6 @@ class SingboxConfigGenerator {
         _ruleSet('re-filter',            're-filter.srs'),
         _ruleSet('ru',                   'ru.srs'),
       ]);
-    }
-
-    if (s.blockAds) {
-      rules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
-      ruleSets.add(_ruleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
     }
 
     return {
