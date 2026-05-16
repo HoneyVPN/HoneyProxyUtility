@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../app/app_theme.dart';
 import '../../../../app/flavor.dart';
 import '../../../../app/l10n/strings.dart';
+import '../../data/vpn_disclosure_provider.dart';
 import '../../domain/entities/connection_state.dart';
 import '../notifiers/connection_notifier.dart';
 import '../widgets/connect_button.dart';
@@ -214,9 +215,71 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (conn.isBusy) return;
     if (conn.isConnected) {
       ref.read(connectionNotifierProvider.notifier).disconnect();
+      return;
+    }
+    if (server == null) return;
+
+    final disclosed = ref.read(vpnDisclosureProvider).value ?? false;
+    if (!disclosed) {
+      _showVpnDisclosure(ref, server);
     } else {
-      if (server == null) return;
       ref.read(connectionNotifierProvider.notifier).connect(server);
+    }
+  }
+
+  Future<void> _showVpnDisclosure(WidgetRef ref, ServerProfileModel server) async {
+    final s = ref.read(stringsProvider);
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.vpn_lock_outlined, size: 22),
+            const SizedBox(width: 10),
+            Text(s.vpnDisclosureTitle),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(s.vpnDisclosureBody, style: const TextStyle(height: 1.5)),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () => launchUrl(
+                  Uri.parse('https://api.honeyvpn.ru/privacy'),
+                  mode: LaunchMode.externalApplication,
+                ),
+                child: Text(
+                  s.vpnDisclosurePrivacyLink,
+                  style: TextStyle(
+                    color: Theme.of(ctx).colorScheme.primary,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(s.vpnDisclosureDecline),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(s.vpnDisclosureAccept),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true) {
+      await ref.read(vpnDisclosureProvider.notifier).accept();
+      if (mounted) {
+        ref.read(connectionNotifierProvider.notifier).connect(server);
+      }
     }
   }
 
