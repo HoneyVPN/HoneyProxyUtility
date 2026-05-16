@@ -87,12 +87,6 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     state = AsyncData(s);
   }
 
-  Future<void> setBlockAds(bool v) async {
-    final s = (state.value ?? const AppSettings()).copyWith(blockAds: v);
-    await _save(s);
-    state = AsyncData(s);
-  }
-
   Future<void> setFakeip(bool v) async {
     final s = (state.value ?? const AppSettings()).copyWith(enableFakeip: v);
     await _save(s);

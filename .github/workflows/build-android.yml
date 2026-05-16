@@ -46,8 +46,7 @@ jobs:
       - name: Build APK — direct flavor (arm64 + armeabi-v7a + x86_64)
         run: |
           flutter build apk --flavor direct --release --split-per-abi \
-            --dart-define=FLAVOR=direct \
-            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            --dart-define=FLAVOR=direct
 
       - name: Rename APKs
         run: |
@@ -107,8 +106,7 @@ jobs:
       - name: Build AAB — play flavor
         run: |
           flutter build appbundle --flavor play --release \
-            --dart-define=FLAVOR=play \
-            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            --dart-define=FLAVOR=play
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4

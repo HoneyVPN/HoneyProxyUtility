@@ -38,7 +38,6 @@ class AppSettings {
   final String locale;
   // sing-box / VPN engine settings
   final TunStack tunStack;
-  final bool blockAds;
   final bool enableFakeip;
   final LogLevel logLevel;
   final int socksPort;
@@ -56,7 +55,6 @@ class AppSettings {
     this.allowLanConnections = false,
     this.locale = 'en',
     this.tunStack = TunStack.mixed,
-    this.blockAds = true,
     this.enableFakeip = true,
     this.logLevel = LogLevel.warn,
     this.socksPort = 2080,
@@ -75,7 +73,6 @@ class AppSettings {
     bool? allowLanConnections,
     String? locale,
     TunStack? tunStack,
-    bool? blockAds,
     bool? enableFakeip,
     LogLevel? logLevel,
     int? socksPort,
@@ -92,7 +89,6 @@ class AppSettings {
     allowLanConnections: allowLanConnections ?? this.allowLanConnections,
     locale: locale ?? this.locale,
     tunStack: tunStack ?? this.tunStack,
-    blockAds: blockAds ?? this.blockAds,
     enableFakeip: enableFakeip ?? this.enableFakeip,
     logLevel: logLevel ?? this.logLevel,
     socksPort: socksPort ?? this.socksPort,
@@ -112,7 +108,6 @@ class AppSettings {
     'allowLanConnections': allowLanConnections,
     'locale': locale,
     'tunStack': tunStack.name,
-    'blockAds': blockAds,
     'enableFakeip': enableFakeip,
     'logLevel': logLevel.name,
     'socksPort': socksPort,
@@ -131,7 +126,6 @@ class AppSettings {
     allowLanConnections: m['allowLanConnections'] as bool? ?? false,
     locale: m['locale'] as String? ?? 'en',
     tunStack: _parseEnum(TunStack.values, m['tunStack'], TunStack.mixed),
-    blockAds: m['blockAds'] as bool? ?? true,
     enableFakeip: m['enableFakeip'] as bool? ?? true,
     logLevel: _parseEnum(LogLevel.values, m['logLevel'], LogLevel.warn),
     socksPort: m['socksPort'] as int? ?? 2080,

@@ -90,10 +90,6 @@ class S {
       ? 'Расшарить прокси в локальной сети'
       : 'Share proxy on local network';
 
-  String get blockAdsTitle    => _ru ? 'Блокировка рекламы' : 'Block Ads';
-  String get blockAdsSubtitle => _ru
-      ? 'Фильтровать рекламные домены через sing-box'
-      : 'Filter ad domains via sing-box';
   String get fakeipTitle    => _ru ? 'Fake IP'  : 'Fake IP';
   String get fakeipSubtitle => _ru
       ? 'Виртуальные IP для быстрого DNS (рекомендуется)'

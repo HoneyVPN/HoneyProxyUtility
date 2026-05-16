@@ -126,14 +126,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           _SwitchTile(
-            icon: Icons.block_outlined,
-            title: s.blockAdsTitle,
-            subtitle: s.blockAdsSubtitle,
-            value: settings.blockAds,
-            onChanged: notifier.setBlockAds,
-          ),
-
-          _SwitchTile(
             icon: Icons.dns_outlined,
             title: s.fakeipTitle,
             subtitle: s.fakeipSubtitle,
