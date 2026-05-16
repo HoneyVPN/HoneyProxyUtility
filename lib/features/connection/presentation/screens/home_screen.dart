@@ -47,6 +47,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final subs = subsState?.subs ?? [];
     final s = ref.watch(stringsProvider);
     final update = ref.watch(updateProvider).value;
+    // Eagerly load disclosure state so .value is ready before user taps connect
+    ref.watch(vpnDisclosureProvider);
 
     final subNames = <String, String>{
       for (final sub in subs) sub.url: sub.name.isNotEmpty ? sub.name : _hostFromUrl(sub.url),
@@ -234,6 +236,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Row(
           children: [
             const Icon(Icons.vpn_lock_outlined, size: 22),
@@ -241,31 +244,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Text(s.vpnDisclosureTitle),
           ],
         ),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 320),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(s.vpnDisclosureBody, style: const TextStyle(height: 1.5)),
-                const SizedBox(height: 12),
-                GestureDetector(
-                  onTap: () => launchUrl(
-                    Uri.parse('https://api.honeyvpn.ru/privacy'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                  child: Text(
-                    s.vpnDisclosurePrivacyLink,
-                    style: TextStyle(
-                      color: Theme.of(ctx).colorScheme.primary,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(s.vpnDisclosureBody, style: const TextStyle(height: 1.5)),
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () => launchUrl(
+                Uri.parse('https://api.honeyvpn.ru/privacy'),
+                mode: LaunchMode.externalApplication,
+              ),
+              child: Text(
+                s.vpnDisclosurePrivacyLink,
+                style: TextStyle(
+                  color: Theme.of(ctx).colorScheme.primary,
+                  decoration: TextDecoration.underline,
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
         actions: [
           TextButton(
