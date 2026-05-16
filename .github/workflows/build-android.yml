@@ -9,12 +9,6 @@ on:
 permissions:
   contents: write
 
-env:
-  KEYSTORE_B64: ***REMOVED***
-  KEY_ALIAS: upload
-  KEY_PASSWORD: ***REMOVED***
-  STORE_PASSWORD: ***REMOVED***
-
 jobs:
   build-android:
     runs-on: ubuntu-latest
@@ -40,23 +34,26 @@ jobs:
 
       - name: Decode keystore
         run: |
-          echo "$KEYSTORE_B64" | base64 -d > android/upload-keystore.jks
-          cat > android/key.properties << 'EOF'
-          storePassword=${{ env.STORE_PASSWORD }}
-          keyPassword=${{ env.KEY_PASSWORD }}
-          keyAlias=${{ env.KEY_ALIAS }}
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > android/upload-keystore.jks
+          cat > android/key.properties << EOF
+          storePassword=${{ secrets.STORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
           storeFile=../upload-keystore.jks
           EOF
 
-      - name: Build APK (release)
-        run: flutter build apk --release --split-per-abi
+      - name: Build APK — direct flavor (arm64 + armeabi-v7a + x86_64)
+        run: |
+          flutter build apk --flavor direct --release --split-per-abi \
+            --dart-define=FLAVOR=direct \
+            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_DSN }}
 
       - name: Rename APKs
         run: |
           TAG=${{ github.ref_name }}
-          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+          for f in build/app/outputs/flutter-apk/app-direct-*-release.apk; do
             base=$(basename "$f" .apk)
-            mv "$f" "build/app/outputs/flutter-apk/HoneyProxyUtility-${TAG}-${base#app-}.apk"
+            mv "$f" "build/app/outputs/flutter-apk/HoneyProxyUtility-${TAG}-${base#app-direct-}.apk"
           done
 
       - name: Deploy APK to honeyvpn.ru
@@ -68,7 +65,7 @@ jobs:
           fi
           if [ -n "$APK" ]; then
             curl -X POST https://api.honeyvpn.ru/deploy/android \
-              -H "X-Deploy-Token: ***REMOVED***" \
+              -H "X-Deploy-Token: ${{ secrets.DEPLOY_TOKEN }}" \
               -H "X-Version: $TAG" \
               -F "file=@$APK" \
               --fail --show-error --max-time 300

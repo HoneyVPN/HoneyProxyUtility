@@ -42,6 +42,19 @@ android {
         versionName = flutter.versionName
     }
 
+    flavorDimensions += "distribution"
+
+    productFlavors {
+        create("direct") {
+            dimension = "distribution"
+            // APK distribution: self-update download, REQUEST_INSTALL_PACKAGES in manifest
+        }
+        create("play") {
+            dimension = "distribution"
+            // Google Play AAB: no REQUEST_INSTALL_PACKAGES, update opens Play Store
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")

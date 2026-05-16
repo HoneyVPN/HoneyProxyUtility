@@ -33,7 +33,21 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     final raw = prefs.getString(_serversKey);
     if (raw == null || raw.isEmpty) return [];
     try {
-      return ServerProfileModel.listFromJson(raw);
+      // latencyMs intentionally stripped — stale ping values should not persist across sessions
+      return ServerProfileModel.listFromJson(raw)
+          .map((s) => ServerProfileModel(
+                id: s.id,
+                protocol: s.protocol,
+                name: s.name,
+                host: s.host,
+                port: s.port,
+                configJson: s.configJson,
+                subscriptionId: s.subscriptionId,
+                addedAt: s.addedAt,
+                isSelected: s.isSelected,
+                isFavorite: s.isFavorite,
+              ))
+          .toList();
     } catch (_) {
       return [];
     }
