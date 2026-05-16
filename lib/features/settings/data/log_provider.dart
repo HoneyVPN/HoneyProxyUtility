@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 class LogEntry {
   final DateTime time;
@@ -23,7 +24,6 @@ class LogNotifier extends StateNotifier<List<LogEntry>> {
   void clear() => state = [];
 }
 
-// ignore: deprecated_member_use
 final logProvider = StateNotifierProvider<LogNotifier, List<LogEntry>>(
   (_) => LogNotifier(),
 );
