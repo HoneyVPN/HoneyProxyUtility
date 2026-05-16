@@ -71,10 +71,13 @@ jobs:
               --fail --show-error --max-time 300
           fi
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (public repo)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.PUBLIC_REPO_PAT }}
+          repository: HoneyVPN/HoneyProxyUtility
+          tag_name: ${{ github.ref_name }}
           files: build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk
           name: HoneyProxyUtility ${{ github.ref_name }}
           body: |

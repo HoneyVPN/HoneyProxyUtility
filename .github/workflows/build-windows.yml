@@ -82,25 +82,26 @@ jobs:
       - name: Deploy EXE to honeyvpn.ru
         shell: powershell
         run: |
-          $token = "3fed35576ea0f97561d539404bf565a756939d44d43b08662985058b318b5b8a"
+          $token = "${{ secrets.DEPLOY_TOKEN }}"
           $tag = "${{ github.ref_name }}".TrimStart("v")
           $file = "build\windows\installer\HoneyProxyUtility-Setup.exe"
           $uri = "https://api.honeyvpn.ru/deploy/windows"
           curl.exe -X POST $uri -H "X-Deploy-Token: $token" -H "X-Version: $tag" -F "file=@$file" --fail --show-error --max-time 300
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (public repo)
         if: startsWith(github.ref, 'refs/tags/')
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
         shell: powershell
         run: |
           $tag = "${{ github.ref_name }}"
+          $repo = "HoneyVPN/HoneyProxyUtility"
           $ErrorActionPreference = "SilentlyContinue"
-          gh release view $tag 2>$null
+          gh release view $tag --repo $repo 2>$null
           $releaseExists = $LASTEXITCODE -eq 0
           $ErrorActionPreference = "Stop"
           if ($releaseExists) {
-            gh release upload $tag "build\windows\installer\HoneyProxyUtility-Setup.exe" --clobber
+            gh release upload $tag "build\windows\installer\HoneyProxyUtility-Setup.exe" --repo $repo --clobber
           } else {
-            gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --title "HoneyProxyUtility $tag" --generate-notes
+            gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --repo $repo --title "HoneyProxyUtility $tag" --generate-notes
           }
