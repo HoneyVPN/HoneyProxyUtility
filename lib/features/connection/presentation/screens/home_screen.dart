@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../app/app_theme.dart';
+import '../../../../app/flavor.dart';
 import '../../../../app/l10n/strings.dart';
 import '../../domain/entities/connection_state.dart';
 import '../notifiers/connection_notifier.dart';
@@ -627,6 +628,10 @@ class _UpdateBannerState extends State<_UpdateBanner> {
   double? _progress;
 
   Future<void> _install() async {
+    if (isPlayFlavor) {
+      await launchUrl(Uri.parse('market://details?id=ru.honeyvpn.proxy'));
+      return;
+    }
     final url = widget.info.downloadUrl;
     if (url.isEmpty) return;
     if (!Platform.isAndroid) {
