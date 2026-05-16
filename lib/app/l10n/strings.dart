@@ -131,6 +131,23 @@ class S {
   String get addButton  => _ru ? 'Добавить' : 'Add';
   String get refreshing => _ru ? 'Обновление…' : 'Refreshing…';
 
+  // ── VPN Disclosure dialog (Google Play VpnService policy) ──────────────────
+  String get vpnDisclosureTitle => _ru ? 'Использование VPN' : 'VPN Usage';
+  String get vpnDisclosureBody  => _ru
+      ? 'Для работы приложению требуется создать VPN-туннель на вашем устройстве.\n\n'
+        '• Весь интернет-трафик будет маршрутизироваться через выбранный прокси-сервер.\n'
+        '• Соединение между устройством и сервером шифруется.\n'
+        '• Приложение не записывает и не передаёт содержимое вашего трафика.\n'
+        '• Личные данные не собираются.'
+      : 'This app needs to create a VPN tunnel on your device.\n\n'
+        '• All internet traffic will be routed through the selected proxy server.\n'
+        '• The connection between your device and the server is encrypted.\n'
+        '• The app does not log or transmit the content of your traffic.\n'
+        '• No personal data is collected.';
+  String get vpnDisclosurePrivacyLink => _ru ? 'Политика конфиденциальности' : 'Privacy Policy';
+  String get vpnDisclosureAccept  => _ru ? 'Принять и продолжить' : 'Accept & Continue';
+  String get vpnDisclosureDecline => _ru ? 'Отмена' : 'Cancel';
+
   // ── Import / Converter screen ───────────────────────────────────────────────
   String get importScreenTitle  => _ru ? 'Импорт'                     : 'Import';
   String get importHint         => _ru ? 'Вставьте ссылку или контент' : 'Paste a link or content';
