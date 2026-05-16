@@ -1,0 +1,4 @@
+— Fixed latency measurement for Hysteria2 and TUIC protocols
+— New settings: ad blocking, FakeIP, TUN stack, log level, proxy ports
+— Log screen with auto-scroll and copy button
+— Fixed xHTTP mode parameter loss for VLESS after app restart

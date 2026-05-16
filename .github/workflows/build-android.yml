@@ -42,6 +42,7 @@ jobs:
           storeFile=../upload-keystore.jks
           EOF
 
+      # ── direct flavor: split APKs for self-distribution ──────────────────
       - name: Build APK — direct flavor (arm64 + armeabi-v7a + x86_64)
         run: |
           flutter build apk --flavor direct --release --split-per-abi \
@@ -51,7 +52,6 @@ jobs:
       - name: Rename APKs
         run: |
           TAG=${{ github.ref_name }}
-          # find across both flutter-apk/ and Gradle output dirs, move to flutter-apk/
           outdir="build/app/outputs/flutter-apk"
           mkdir -p "$outdir"
           mapfile -t files < <(find build/app/outputs -name "app-direct-*-release.apk" 2>/dev/null)
@@ -102,3 +102,31 @@ jobs:
             1. Скачай APK под свой процессор
             2. Разреши установку из неизвестных источников
             3. Установи и добавь подписку через @honeyvpnru_bot
+
+      # ── play flavor: AAB for Google Play ─────────────────────────────────
+      - name: Build AAB — play flavor
+        run: |
+          flutter build appbundle --flavor play --release \
+            --dart-define=FLAVOR=play \
+            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoneyProxyUtility-${{ github.ref_name }}-play-release.aab
+          path: build/app/outputs/bundle/playRelease/app-play-release.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      # Runs only on tag pushes AND when PLAY_STORE_KEY_JSON secret is set.
+      # To enable: add service account JSON as PLAY_STORE_KEY_JSON in repo secrets.
+      - name: Upload AAB to Google Play (internal track)
+        if: startsWith(github.ref, 'refs/tags/') && secrets.PLAY_STORE_KEY_JSON != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_KEY_JSON }}
+          packageName: ru.honeyvpn.proxy
+          releaseFiles: build/app/outputs/bundle/playRelease/app-play-release.aab
+          track: internal
+          status: completed
+          whatsNewDirectory: distribution/whatsnew
