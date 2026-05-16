@@ -1,6 +1,10 @@
+#ifndef AppVer
+  #define AppVer "1.0.82"
+#endif
+
 [Setup]
 AppName=HoneyProxyUtility
-AppVersion=1.0.0
+AppVersion={#AppVer}
 AppPublisher=HoneyVPN
 AppPublisherURL=https://honeyvpn.ru
 AppSupportURL=https://t.me/honeyvpnmanager
@@ -23,9 +27,6 @@ Name: "desktopicon"; Description: "Создать значок на рабоче
 
 [Files]
 Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-[Registry]
-Root: HKLM; Subkey: "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"; ValueType: string; ValueName: "{app}\HoneyProxyUtility.exe"; ValueData: "RUNASADMIN"; Flags: uninsdeletevalue
 
 [Icons]
 Name: "{group}\HoneyVPN"; Filename: "{app}\HoneyProxyUtility.exe"

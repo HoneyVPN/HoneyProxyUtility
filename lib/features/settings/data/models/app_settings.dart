@@ -203,7 +203,7 @@ extension DnsPresetExt on DnsPreset {
     DnsPreset.cloudflare => 'https://cloudflare-dns.com/dns-query',
     DnsPreset.google     => 'https://dns.google/dns-query',
     DnsPreset.adguard    => 'https://dns.adguard-dns.com/dns-query',
-    DnsPreset.custom     => ',',
+    DnsPreset.custom     => '',
   };
 
   String get ip => switch (this) {

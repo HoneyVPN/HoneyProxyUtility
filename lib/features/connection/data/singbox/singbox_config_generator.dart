@@ -10,43 +10,6 @@ class SingboxConfigGenerator {
 
   final Map<String, String>? geoPaths;
 
-  String generate(ParsedProxy proxy, AppSettings settings) {
-    final proxyOut = _outbound(proxy);
-    // Hysteria2 and TUIC have their own built-in multiplexing; WireGuard does not
-    // support application-layer smux. Adding our smux layer on top of these would
-    // cause the server to reject the connection.
-    final supportsSmux = proxy is! Hysteria2Config &&
-        proxy is! TuicConfig &&
-        proxy is! WireGuardConfig;
-    if (settings.multiplexerEnabled && supportsSmux) {
-      proxyOut['multiplex'] = {
-        'enabled': true,
-        'protocol': 'smux',
-        'max_connections': 4,
-        'min_streams': 4,
-      };
-    }
-    final outbounds = <Map<String, dynamic>>[proxyOut];
-
-    // ShadowTLS requires the inner proxy as a separate named outbound
-    if (proxy is ShadowTlsConfig) {
-      final inner = _outbound(proxy.innerProxy);
-      inner['tag'] = 'shadowtls-inner';
-      outbounds.add(inner);
-    }
-
-    outbounds.addAll([_direct(), _block()]);
-
-    final config = {
-      'log': _log(settings),
-      'dns': _dns(settings),
-      'inbounds': _inbounds(settings),
-      'outbounds': outbounds,
-      'route': _route(settings),
-    };
-    return jsonEncode(config);
-  }
-
   Map<String, dynamic> _log(AppSettings s) => {
     'level': s.logLevel.name,
     'timestamp': true,
@@ -116,30 +79,6 @@ class SingboxConfigGenerator {
       return {'type': 'tls', 'server': '1.1.1.1'};
     }
   }
-
-  List<Map<String, dynamic>> _inbounds(AppSettings s) => [
-    {
-      'type': 'tun',
-      'tag': 'tun-in',
-      'address': ['198.18.0.1/16', 'fdfe:dcba:9876::1/126'],
-      'mtu': 9000,
-      'auto_route': true,
-      'strict_route': true,
-      'stack': s.tunStack.name,
-    },
-    {
-      'type': 'socks',
-      'tag': 'socks-in',
-      'listen': s.allowLanConnections ? '0.0.0.0' : '127.0.0.1',
-      'listen_port': s.socksPort,
-    },
-    {
-      'type': 'http',
-      'tag': 'http-in',
-      'listen': s.allowLanConnections ? '0.0.0.0' : '127.0.0.1',
-      'listen_port': s.httpPort,
-    },
-  ];
 
   Map<String, dynamic> _outbound(ParsedProxy proxy) => switch (proxy) {
     VlessConfig c   => _vless(c),
@@ -383,45 +322,6 @@ class SingboxConfigGenerator {
 
   Map<String, dynamic> _direct() => {'type': 'direct', 'tag': 'direct'};
   Map<String, dynamic> _block() => {'type': 'block', 'tag': 'block'};
-
-  Map<String, dynamic> _route(AppSettings s) {
-    final rules = <Map<String, dynamic>>[
-      {'action': 'sniff'},
-      if (s.fragmentationEnabled) {'action': 'route-options', 'tls_fragment': true, 'tls_fragment_fallback_delay': '500ms'},
-      {'protocol': 'dns', 'action': 'hijack-dns'},
-      {'ip_is_private': true, 'outbound': 'direct'},
-    ];
-
-    final ruleSets = <Map<String, dynamic>>[];
-
-    if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
-      // Blocked sites → proxy (bypass Roskomnadzor restrictions)
-      rules.add({'rule_set': 'ru-blocked',           'outbound': 'proxy'});
-      rules.add({'rule_set': 'ru-blocked-community', 'outbound': 'proxy'});
-      rules.add({'rule_set': 're-filter',            'outbound': 'proxy'});
-      // Russian IPs → direct
-      rules.add({'rule_set': 'ru', 'outbound': 'direct'});
-      ruleSets.addAll([
-        _ruleSet('ru-blocked',           'ru-blocked.srs'),
-        _ruleSet('ru-blocked-community', 'ru-blocked-community.srs'),
-        _ruleSet('re-filter',            're-filter.srs'),
-        _ruleSet('ru',                   'ru.srs'),
-      ]);
-    }
-
-    if (s.blockAds) {
-      rules.add({'rule_set': 'geosite-category-ads-all', 'outbound': 'block'});
-      ruleSets.add(_ruleSet('geosite-category-ads-all', 'geosite-category-ads-all.srs'));
-    }
-
-    return {
-      'rules': rules,
-      if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
-      'final': 'proxy',
-      'auto_detect_interface': true,
-      'default_domain_resolver': {'server': 'local-dns'},
-    };
-  }
 
   String generateForAndroid(ParsedProxy proxy, AppSettings settings) {
     final proxyOut = _outbound(proxy);

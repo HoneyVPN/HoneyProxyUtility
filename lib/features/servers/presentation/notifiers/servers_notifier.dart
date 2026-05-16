@@ -1,10 +1,9 @@
 import 'dart:convert';
-import 'dart:io' show Socket;
-
-import 'package:flutter/services.dart';
+import 'dart:io' show Socket, SocketException;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/server_profile_model.dart';
@@ -135,40 +134,32 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     state = AsyncData(updated);
   }
 
-  static const _vpnChannel = MethodChannel('ru.honeyvpn.proxy/vpn');
-
   Future<double> testLatency(ServerProfileModel server) async {
-    final udpOnly = server.protocol == 'hy2' || server.protocol == 'tuic';
-    final ms = udpOnly
-        ? await _pingIcmp(server.host)
-        : await _pingTcp(server.host, server.port);
+    final ms = await _pingTcp(server.host, server.port);
     await updateLatency(server.id, ms);
     return ms;
   }
 
   Future<double> _pingTcp(String host, int port) async {
     Socket? sock;
+    final sw = Stopwatch()..start();
     try {
-      final sw = Stopwatch()..start();
       sock = await Socket.connect(host, port, timeout: const Duration(seconds: 5));
       sw.stop();
       return sw.elapsedMilliseconds.toDouble();
+    } on SocketException catch (e) {
+      sw.stop();
+      // TCP RST (connection refused) means host is reachable — elapsed time = RTT.
+      // This lets UDP-only protocols (hy2, tuic) get a latency reading too.
+      final code = e.osError?.errorCode;
+      if (code == 111 || code == 61 /* ECONNREFUSED Linux/macOS */) {
+        return sw.elapsedMilliseconds.toDouble();
+      }
+      return -1;
     } catch (_) {
       return -1;
     } finally {
       await sock?.close();
-    }
-  }
-
-  Future<double> _pingIcmp(String host) async {
-    try {
-      final ms = await _vpnChannel.invokeMethod<int>('pingHost', {
-        'host': host,
-        'timeout': 3000,
-      });
-      return ms?.toDouble() ?? -1.0;
-    } catch (_) {
-      return -1.0;
     }
   }
 
@@ -239,6 +230,8 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
             if (c.transportHost.isNotEmpty) 'host': c.transportHost,
             if (c.grpcServiceName.isNotEmpty) 'serviceName': c.grpcServiceName,
             if (c.flow.isNotEmpty) 'flow': c.flow,
+            if (c.xhttpMode.isNotEmpty) 'mode': c.xhttpMode,
+            if (c.xPaddingBytes.isNotEmpty) 'xPaddingBytes': c.xPaddingBytes,
           };
           final q = params.entries.map((e) => '${e.key}=${e.value}').join('&');
           return 'vless://${c.uuid}@${c.host}:${c.port}?$q#${Uri.encodeComponent(c.name)}';

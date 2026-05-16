@@ -56,7 +56,6 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
         id: nextId,
         url: _defaultSubUrl,
         name: 'HoneyVPN',
-        autoRefresh: true,
         updateIntervalHours: 24,
       );
       subs = [defaultSub, ...subs];

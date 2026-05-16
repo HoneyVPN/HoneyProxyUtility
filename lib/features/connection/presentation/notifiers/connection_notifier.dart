@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'package:logging/logging.dart';
@@ -12,6 +14,7 @@ import '../../../servers/data/models/server_profile_model.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../settings/presentation/notifiers/settings_notifier.dart';
 import '../../../settings/data/models/app_settings.dart';
+import '../../../settings/data/log_provider.dart';
 
 final _log = Logger('ConnectionNotifier');
 
@@ -70,6 +73,9 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
   Future<void> connect(ServerProfileModel server) async {
     if (state.isBusy) return;
 
+    ref.read(logProvider.notifier).add(
+      'Connecting to ${server.name.isNotEmpty ? server.name : server.host} [${server.protocol.toUpperCase()}]',
+    );
     state = state.copyWith(
       status: ConnectionStatus.preparing,
       activeServer: server,
@@ -82,10 +88,22 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
         throw Exception('Cannot parse server config');
       }
 
+      if (!kIsWeb && !Platform.isAndroid && !Platform.isIOS) {
+        if (proxy is TuicConfig || proxy is WireGuardConfig ||
+            proxy is NaiveConfig || proxy is ShadowTlsConfig) {
+          state = state.copyWith(
+            status: ConnectionStatus.error,
+            errorMessage: '${proxy.protocolLabel} не поддерживается на Windows',
+          );
+          return;
+        }
+      }
+
       try {
         _datasource ??= VpnDatasource(
           onStatusChanged: _onV2RayStatus,
           onError: (msg) {
+            ref.read(logProvider.notifier).add(msg, isError: true);
             state = state.copyWith(
               status: ConnectionStatus.error,
               errorMessage: msg,
@@ -135,6 +153,13 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
 
   void _onV2RayStatus(V2RayStatus status) {
     final vpnState = status.state.toUpperCase();
+    if (vpnState == 'CONNECTED' && state.status != ConnectionStatus.connected) {
+      ref.read(logProvider.notifier).add(
+        'Connected to ${state.activeServer?.name ?? state.activeServer?.host ?? "server"}',
+      );
+    } else if (vpnState == 'DISCONNECTED' && state.status == ConnectionStatus.connected) {
+      ref.read(logProvider.notifier).add('Disconnected');
+    }
     if (vpnState == 'CONNECTED') {
       state = state.copyWith(
         status: ConnectionStatus.connected,

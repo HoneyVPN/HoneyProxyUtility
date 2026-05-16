@@ -80,4 +80,40 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     await _save(s);
     state = AsyncData(s);
   }
+
+  Future<void> setTunStack(TunStack v) async {
+    final s = (state.value ?? const AppSettings()).copyWith(tunStack: v);
+    await _save(s);
+    state = AsyncData(s);
+  }
+
+  Future<void> setBlockAds(bool v) async {
+    final s = (state.value ?? const AppSettings()).copyWith(blockAds: v);
+    await _save(s);
+    state = AsyncData(s);
+  }
+
+  Future<void> setFakeip(bool v) async {
+    final s = (state.value ?? const AppSettings()).copyWith(enableFakeip: v);
+    await _save(s);
+    state = AsyncData(s);
+  }
+
+  Future<void> setLogLevel(LogLevel v) async {
+    final s = (state.value ?? const AppSettings()).copyWith(logLevel: v);
+    await _save(s);
+    state = AsyncData(s);
+  }
+
+  Future<void> setSocksPort(int v) async {
+    final s = (state.value ?? const AppSettings()).copyWith(socksPort: v);
+    await _save(s);
+    state = AsyncData(s);
+  }
+
+  Future<void> setHttpPort(int v) async {
+    final s = (state.value ?? const AppSettings()).copyWith(httpPort: v);
+    await _save(s);
+    state = AsyncData(s);
+  }
 }
