@@ -240,27 +240,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Text(s.vpnDisclosureTitle),
           ],
         ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(s.vpnDisclosureBody, style: const TextStyle(height: 1.5)),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: () => launchUrl(
-                  Uri.parse('https://api.honeyvpn.ru/privacy'),
-                  mode: LaunchMode.externalApplication,
-                ),
-                child: Text(
-                  s.vpnDisclosurePrivacyLink,
-                  style: TextStyle(
-                    color: Theme.of(ctx).colorScheme.primary,
-                    decoration: TextDecoration.underline,
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 320),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(s.vpnDisclosureBody, style: const TextStyle(height: 1.5)),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () => launchUrl(
+                    Uri.parse('https://api.honeyvpn.ru/privacy'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  child: Text(
+                    s.vpnDisclosurePrivacyLink,
+                    style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.primary,
+                      decoration: TextDecoration.underline,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         actions: [
