@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:io' show Platform;
+import 'package:permission_handler/permission_handler.dart';
 
 import 'package:dio/dio.dart';
 import 'package:open_file/open_file.dart';
@@ -704,6 +705,15 @@ class _UpdateBannerState extends State<_UpdateBanner> {
       await launchUrl(Uri.parse(url));
       return;
     }
+
+    // Android 8+: need special permission to install APKs
+    final canInstall = await Permission.requestInstallPackages.isGranted;
+    if (!canInstall) {
+      // Opens Settings → "Install unknown apps" for this app
+      await Permission.requestInstallPackages.request();
+      return;
+    }
+
     setState(() => _progress = 0);
     try {
       final dir = await getTemporaryDirectory();
@@ -717,9 +727,13 @@ class _UpdateBannerState extends State<_UpdateBanner> {
           }
         },
       );
-      await OpenFile.open(path);
+      final result = await OpenFile.open(path);
+      if (result.type != ResultType.done) {
+        // OpenFile failed — fall back to browser download
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      }
     } catch (_) {
-      await launchUrl(Uri.parse(url));
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     } finally {
       if (mounted) setState(() => _progress = null);
     }
