@@ -96,6 +96,7 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $repo = "HoneyVPN/HoneyProxyUtility"
+          $preArgs = if ($tag -match "-") { @("--prerelease") } else { @() }
           $ErrorActionPreference = "SilentlyContinue"
           gh release view $tag --repo $repo 2>$null
           $releaseExists = $LASTEXITCODE -eq 0
@@ -103,5 +104,5 @@ jobs:
           if ($releaseExists) {
             gh release upload $tag "build\windows\installer\HoneyProxyUtility-Setup.exe" --repo $repo --clobber
           } else {
-            gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --repo $repo --title "HoneyProxyUtility $tag" --generate-notes
+            gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --repo $repo --title "HoneyProxyUtility $tag" --generate-notes @preArgs
           }

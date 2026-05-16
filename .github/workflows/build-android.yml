@@ -78,6 +78,7 @@ jobs:
           token: ${{ secrets.PUBLIC_REPO_PAT }}
           repository: HoneyVPN/HoneyProxyUtility
           tag_name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk
           name: HoneyProxyUtility ${{ github.ref_name }}
           body: |
