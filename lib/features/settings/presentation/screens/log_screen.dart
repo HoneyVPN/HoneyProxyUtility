@@ -55,14 +55,19 @@ class _LogScreenState extends ConsumerState<LogScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final entries = ref.watch(logProvider);
     final cs = Theme.of(context).colorScheme;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    ref.listen(logProvider, (_, __) {
       if (_autoScroll && _scrollCtrl.hasClients) {
-        _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollCtrl.hasClients) {
+            _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
+          }
+        });
       }
     });
+
+    final entries = ref.watch(logProvider);
 
     return Scaffold(
       appBar: AppBar(
