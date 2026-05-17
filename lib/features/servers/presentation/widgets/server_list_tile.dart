@@ -113,25 +113,28 @@ class _ServerListTileState extends ConsumerState<ServerListTile> {
                 ],
               ),
             ),
-            SizedBox(
-              width: 52,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: _pinging
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 1.5),
-                      )
-                    : GestureDetector(
-                        onTap: _ping,
-                        child: server.latencyMs != null
-                            ? LatencyBadge(ms: server.latencyMs!)
-                            : Icon(Icons.network_ping_outlined, size: 17,
-                                color: cs.onSurfaceVariant.withOpacity(0.4)),
-                      ),
-              ),
-            ),
+            if (server.protocol != 'awg')
+              SizedBox(
+                width: 52,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _pinging
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 1.5),
+                        )
+                      : GestureDetector(
+                          onTap: _ping,
+                          child: server.latencyMs != null
+                              ? LatencyBadge(ms: server.latencyMs!)
+                              : Icon(Icons.network_ping_outlined, size: 17,
+                                  color: cs.onSurfaceVariant.withOpacity(0.4)),
+                        ),
+                ),
+              )
+            else
+              const SizedBox(width: 52),
             const SizedBox(width: 8),
             if (selected)
               Icon(Icons.check_circle_rounded, color: NexColors.connected, size: 18),

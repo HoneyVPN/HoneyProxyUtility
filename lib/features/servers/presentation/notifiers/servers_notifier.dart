@@ -159,7 +159,6 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
   }
 
   Future<double> _pingProxy(ParsedProxy proxy) async {
-    if (proxy is AmneziaWGConfig) return _pingAwg(proxy);
     if (Platform.isAndroid) return _pingAndroid(proxy);
     return _pingTcp(proxy.host, proxy.port);
   }
@@ -229,26 +228,6 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     }
   }
 
-  /// AWG ping: ICMP via system ping binary (Android + Windows).
-  /// WireGuard is a UDP L3 tunnel — measuring latency without a full
-  /// handshake is not possible. ICMP RTT is the best practical proxy
-  /// (WireGuard adds negligible overhead over the raw network RTT).
-  Future<double> _pingAwg(AmneziaWGConfig proxy) async {
-    try {
-      final args = Platform.isWindows
-          ? ['-n', '1', '-w', '3000', proxy.host]
-          : ['-c', '1', '-W', '3', proxy.host];
-      final bin = Platform.isWindows ? 'ping' : '/system/bin/ping';
-      final result = await Process.run(bin, args)
-          .timeout(const Duration(seconds: 6));
-      if (result.exitCode == 0) {
-        final out = result.stdout as String;
-        final m = RegExp(r'time[=<]([\d.]+)\s*ms').firstMatch(out);
-        if (m != null) return double.parse(m.group(1)!);
-      }
-    } catch (_) {}
-    return -1;
-  }
 
 
   Future<bool> _waitForPort(String host, int port, int timeoutMs) async {
@@ -286,6 +265,7 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
   Future<void> testAllLatency() async {
     final servers = List<ServerProfileModel>.of(state.value ?? []);
     for (final s in servers) {
+      if (s.protocol == 'awg') continue;
       try { await testLatency(s); } catch (_) {}
     }
   }
