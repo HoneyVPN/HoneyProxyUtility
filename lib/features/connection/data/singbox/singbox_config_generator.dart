@@ -364,8 +364,10 @@ class SingboxConfigGenerator {
   String generateForAwgPing(AmneziaWGConfig proxy, int socksPort) => jsonEncode({
     'log': {'level': 'warn'},
     'dns': {
-      'servers': [{'type': 'local', 'tag': 'local-dns'}],
-      'final': 'local-dns',
+      'servers': [
+        {'type': 'udp', 'address': '1.1.1.1', 'tag': 'dns', 'detour': 'direct'},
+      ],
+      'final': 'dns',
     },
     'endpoints': [_amneziaWGEndpoint(proxy)],
     'inbounds': [{
@@ -376,9 +378,12 @@ class SingboxConfigGenerator {
     }],
     'outbounds': [_direct()],
     'route': {
-      'rules': [{'action': 'sniff'}],
+      'rules': [
+        {'action': 'sniff'},
+        {'protocol': 'dns', 'outbound': 'direct'},
+      ],
       'final': 'proxy',
-      'default_domain_resolver': {'server': 'local-dns'},
+      'auto_detect_interface': true,
     },
   });
 
