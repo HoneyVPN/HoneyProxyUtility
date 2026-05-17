@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File, HttpClient, Platform, Process, ServerSocket, Socket;
+import 'dart:io' show File, HttpClient, Platform, Process, ServerSocket, Socket, SocketOption;
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -158,8 +160,11 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
   }
 
   Future<double> _pingProxy(ParsedProxy proxy) async {
+    if (proxy is AmneziaWGConfig) {
+      if (Platform.isAndroid) return _pingAndroidAwg(proxy);
+      return _pingTcp(proxy.host, proxy.port);
+    }
     if (Platform.isAndroid) return _pingAndroid(proxy);
-    // Windows / other: TCP fallback (sing-box subprocess not set up there)
     return _pingTcp(proxy.host, proxy.port);
   }
 
@@ -225,6 +230,115 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     } finally {
       process?.kill();
       try { cfgFile.deleteSync(); } catch (_) {}
+    }
+  }
+
+  /// Ping AmneziaWG by spinning up a sing-box endpoint with a SOCKS5 inbound,
+  /// then making a real HTTP request through it and measuring round-trip time.
+  Future<double> _pingAndroidAwg(AmneziaWGConfig proxy) async {
+    String? libDir;
+    try {
+      libDir = await _nativeChannel.invokeMethod<String>('getNativeLibDir');
+    } catch (_) {}
+    if (libDir == null) return -1;
+
+    final sbPath = '$libDir/libsingbox.so';
+    if (!File(sbPath).existsSync()) return -1;
+
+    int socksPort;
+    try {
+      final ss = await ServerSocket.bind('127.0.0.1', 0);
+      socksPort = ss.port;
+      await ss.close();
+    } catch (_) {
+      return -1;
+    }
+
+    final dir = await getTemporaryDirectory();
+    final cfgFile = File('${dir.path}/sbping_awg_$socksPort.json');
+    Process? process;
+    try {
+      final configJson = SingboxConfigGenerator().generateForAwgPing(proxy, socksPort);
+      await cfgFile.writeAsString(configJson);
+      process = await Process.start(sbPath, ['run', '-c', cfgFile.path]);
+      process.stdout.drain<void>();
+      process.stderr.drain<void>();
+
+      // AWG needs longer to establish the tunnel (UDP handshake + endpoint setup)
+      if (!await _waitForPort('127.0.0.1', socksPort, 12000)) return -1;
+
+      return await _pingViaSocks5('127.0.0.1', socksPort);
+    } catch (_) {
+      return -1;
+    } finally {
+      process?.kill();
+      try { cfgFile.deleteSync(); } catch (_) {}
+    }
+  }
+
+  /// Sends an HTTP GET to www.gstatic.com/generate_204 through a SOCKS5 proxy
+  /// and returns the round-trip time in milliseconds.
+  Future<double> _pingViaSocks5(String proxyHost, int proxyPort) async {
+    const target = 'www.gstatic.com';
+    const targetPort = 80;
+
+    Socket? sock;
+    final sw = Stopwatch();
+    final buf = <int>[];
+    Completer<void>? pending;
+
+    try {
+      sock = await Socket.connect(proxyHost, proxyPort,
+          timeout: const Duration(seconds: 5));
+      sock.setOption(SocketOption.tcpNoDelay, true);
+
+      sock.listen(
+        (data) {
+          buf.addAll(data);
+          pending?.complete();
+          pending = null;
+        },
+        onError: (e) { pending?.completeError(e as Object); pending = null; },
+      );
+
+      Future<void> ensureBytes(int n) async {
+        while (buf.length < n) {
+          pending = Completer<void>();
+          await pending!.future.timeout(const Duration(seconds: 5));
+        }
+      }
+
+      // SOCKS5 greeting: version 5, 1 method, no-auth
+      sock.add([5, 1, 0]);
+      await sock.flush();
+      await ensureBytes(2);
+      if (buf[1] != 0) return -1;
+      buf.removeRange(0, 2);
+
+      // CONNECT to target
+      final hostBytes = utf8.encode(target);
+      sock.add([5, 1, 0, 3, hostBytes.length, ...hostBytes,
+        (targetPort >> 8) & 0xFF, targetPort & 0xFF]);
+      await sock.flush();
+      // Reply is at least 10 bytes for IPv4 (most common)
+      await ensureBytes(10);
+      if (buf[1] != 0) return -1;
+      buf.clear();
+
+      // HTTP GET — start timing here (tunnel already up, this measures server RTT)
+      sw.start();
+      sock.add(Uint8List.fromList(utf8.encode(
+        'GET /generate_204 HTTP/1.0\r\nHost: $target\r\nConnection: close\r\n\r\n',
+      )));
+      await sock.flush();
+      await ensureBytes(1);
+      sw.stop();
+      return sw.elapsedMilliseconds.toDouble();
+    } catch (_) {
+      return -1;
+    } finally {
+      sw.stop();
+      await sock?.close();
     }
   }
 
@@ -305,6 +419,7 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     Hysteria2Config _ => 'hy2',
     TuicConfig _ => 'tuic',
     WireGuardConfig _ => 'wg',
+    AmneziaWGConfig _ => 'awg',
     NaiveConfig _ => 'naive',
     ShadowTlsConfig _ => 'shadowtls',
   };
@@ -391,6 +506,18 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
             if (c.reserved != null) 'reserved': c.reserved,
           });
           return 'wireguard://${c.host}:${c.port}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
+        }(),
+      AmneziaWGConfig c => () {
+          final data = json.encode({
+            'privateKey': c.privateKey, 'publicKey': c.publicKey,
+            'presharedKey': c.presharedKey, 'addresses': c.addresses,
+            'dns': c.dns, 'mtu': c.mtu,
+            if (c.reserved != null) 'reserved': c.reserved,
+            'jc': c.jc, 'jmin': c.jmin, 'jmax': c.jmax,
+            's1': c.s1, 's2': c.s2, 's3': c.s3, 's4': c.s4,
+            'h1': c.h1, 'h2': c.h2, 'h3': c.h3, 'h4': c.h4,
+          });
+          return 'awg://${c.host}:${c.port}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
         }(),
       NaiveConfig c =>
           '${c.scheme}://${c.username}:${c.password}@${c.host}:${c.port}#${Uri.encodeComponent(c.name)}',

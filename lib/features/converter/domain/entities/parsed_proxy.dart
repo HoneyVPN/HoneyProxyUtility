@@ -224,6 +224,56 @@ final class WireGuardConfig extends ParsedProxy {
   @override String get protocolLabel => 'WG';
 }
 
+final class AmneziaWGConfig extends ParsedProxy {
+  const AmneziaWGConfig({
+    required this.name,
+    required this.host,
+    required this.port,
+    required this.privateKey,
+    required this.publicKey,
+    required this.presharedKey,
+    required this.addresses,
+    required this.dns,
+    required this.mtu,
+    this.reserved,
+    this.jc = 4,
+    this.jmin = 40,
+    this.jmax = 70,
+    this.s1 = 0,
+    this.s2 = 0,
+    this.s3 = 0,
+    this.s4 = 0,
+    this.h1 = 1,
+    this.h2 = 2,
+    this.h3 = 3,
+    this.h4 = 4,
+  });
+
+  @override final String name;
+  @override final String host;
+  @override final int port;
+  final String privateKey;
+  final String publicKey;
+  final String presharedKey;
+  final List<String> addresses;
+  final List<String> dns;
+  final int mtu;
+  final List<int>? reserved;
+  final int jc;    // junk packet count
+  final int jmin;  // junk packet min size
+  final int jmax;  // junk packet max size
+  final int s1;    // init packet junk sizes
+  final int s2;
+  final int s3;
+  final int s4;
+  final int h1;    // magic headers
+  final int h2;
+  final int h3;
+  final int h4;
+
+  @override String get protocolLabel => 'AWG';
+}
+
 final class NaiveConfig extends ParsedProxy {
   const NaiveConfig({
     required this.name,

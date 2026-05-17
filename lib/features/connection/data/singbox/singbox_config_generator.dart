@@ -87,6 +87,7 @@ class SingboxConfigGenerator {
     Hysteria2Config c => _hysteria2(c),
     TuicConfig c    => _tuic(c),
     WireGuardConfig c => _wireguard(c),
+    AmneziaWGConfig _ => throw UnsupportedError('AWG uses endpoint, not outbound'),
     NaiveConfig c   => _naive(c),
     ShadowTlsConfig c => _shadowtls(c),
   };
@@ -185,6 +186,43 @@ class SingboxConfigGenerator {
     if (c.reserved != null) 'reserved': c.reserved,
     'mtu': c.mtu,
   };
+
+  // AmneziaWG uses the `endpoints` array, not outbounds — built via _generateForAmneziaWG.
+  Map<String, dynamic> _amneziaWGEndpoint(AmneziaWGConfig c) {
+    final peer = <String, dynamic>{
+      'address': c.host,
+      'port': c.port,
+      'public_key': c.publicKey,
+      'allowed_ips': ['0.0.0.0/0', '::/0'],
+    };
+    if (c.presharedKey.isNotEmpty) peer['pre_shared_key'] = c.presharedKey;
+    if (c.reserved != null) peer['reserved'] = c.reserved;
+
+    final amnezia = <String, dynamic>{
+      'jc': c.jc,
+      'jmin': c.jmin,
+      'jmax': c.jmax,
+    };
+    if (c.s1 != 0) amnezia['s1'] = c.s1;
+    if (c.s2 != 0) amnezia['s2'] = c.s2;
+    if (c.s3 != 0) amnezia['s3'] = c.s3;
+    if (c.s4 != 0) amnezia['s4'] = c.s4;
+    if (c.h1 != 0) amnezia['h1'] = c.h1;
+    if (c.h2 != 0) amnezia['h2'] = c.h2;
+    if (c.h3 != 0) amnezia['h3'] = c.h3;
+    if (c.h4 != 0) amnezia['h4'] = c.h4;
+
+    return {
+      'type': 'wireguard',
+      'tag': 'proxy',
+      'address': c.addresses.isNotEmpty ? c.addresses : ['10.0.0.1/32'],
+      'private_key': c.privateKey,
+      'listen_port': 51820,
+      'peers': [peer],
+      'mtu': c.mtu,
+      'amnezia': amnezia,
+    };
+  }
 
   Map<String, dynamic> _naive(NaiveConfig c) => {
     'type': 'http',
@@ -322,9 +360,32 @@ class SingboxConfigGenerator {
   Map<String, dynamic> _direct() => {'type': 'direct', 'tag': 'direct'};
   Map<String, dynamic> _block() => {'type': 'block', 'tag': 'block'};
 
+  /// AWG ping config: endpoint + SOCKS5 inbound. Latency measured via SOCKS5.
+  String generateForAwgPing(AmneziaWGConfig proxy, int socksPort) => jsonEncode({
+    'log': {'level': 'warn'},
+    'dns': {
+      'servers': [{'type': 'local', 'tag': 'local-dns'}],
+      'final': 'local-dns',
+    },
+    'endpoints': [_amneziaWGEndpoint(proxy)],
+    'inbounds': [{
+      'type': 'mixed',
+      'tag': 'mixed-in',
+      'listen': '127.0.0.1',
+      'listen_port': socksPort,
+    }],
+    'outbounds': [_direct()],
+    'route': {
+      'rules': [{'action': 'sniff'}],
+      'final': 'proxy',
+      'default_domain_resolver': {'server': 'local-dns'},
+    },
+  });
+
   /// Minimal config for latency testing: no TUN, no inbounds.
   /// sing-box runs as a plain process; Clash API is used to drive the delay test.
   String generateForPing(ParsedProxy proxy, int apiPort) {
+    if (proxy is AmneziaWGConfig) throw UnsupportedError('AWG uses generateForAwgPing');
     final proxyOut = _outbound(proxy);
     final outbounds = <Map<String, dynamic>>[proxyOut];
     if (proxy is ShadowTlsConfig) {
@@ -346,6 +407,9 @@ class SingboxConfigGenerator {
   }
 
   String generateForAndroid(ParsedProxy proxy, AppSettings settings) {
+    // AmneziaWG requires the endpoint API — completely separate config path.
+    if (proxy is AmneziaWGConfig) return _generateForAmneziaWG(proxy, settings);
+
     final proxyOut = _outbound(proxy);
     final supportsSmux = proxy is! Hysteria2Config &&
         proxy is! TuicConfig &&
@@ -373,6 +437,24 @@ class SingboxConfigGenerator {
       'dns': _dns(settings.copyWith(enableFakeip: false)),
       'inbounds': _inboundsForAndroid(settings),
       'outbounds': outbounds,
+      'route': _routeForAndroid(settings),
+      'experimental': {
+        'clash_api': {
+          'external_controller': '127.0.0.1:9090',
+          'store_selected': false,
+        },
+      },
+    };
+    return jsonEncode(config);
+  }
+
+  String _generateForAmneziaWG(AmneziaWGConfig proxy, AppSettings settings) {
+    final config = {
+      'log': _log(settings),
+      'dns': _dns(settings.copyWith(enableFakeip: false)),
+      'inbounds': _inboundsForAndroid(settings),
+      'endpoints': [_amneziaWGEndpoint(proxy)],
+      'outbounds': [_direct(), _block()],
       'route': _routeForAndroid(settings),
       'experimental': {
         'clash_api': {

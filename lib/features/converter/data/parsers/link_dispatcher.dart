@@ -6,6 +6,7 @@ import 'shadowsocks_parser.dart';
 import 'hysteria2_parser.dart';
 import 'tuic_parser.dart';
 import 'wireguard_parser.dart';
+import 'amneziawg_parser.dart';
 import 'naive_parser.dart';
 import 'shadowtls_parser.dart';
 import '../../domain/entities/parsed_proxy.dart';
@@ -20,6 +21,7 @@ class LinkDispatcher {
     TuicParser(),
     TrojanParser(),
     ShadowsocksParser(),
+    AmneziaWGParser(),
     WireGuardParser(),
     NaiveParser(),
     ShadowTlsParser(),

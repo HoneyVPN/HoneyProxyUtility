@@ -15,6 +15,7 @@ class ProtocolChip extends StatelessWidget {
       'hy2' || 'hysteria2' => NexColors.hysteria2,
       'tuic' => NexColors.tuic,
       'wg' || 'wireguard' => NexColors.wireguard,
+      'awg' || 'amneziawg' => NexColors.amneziaWG,
       'naive' => NexColors.naive,
       _ => Colors.grey,
     };
@@ -23,6 +24,7 @@ class ProtocolChip extends StatelessWidget {
       'ss' => 'SS',
       'hy2' => 'HY2',
       'wg' => 'WG',
+      'awg' => 'AWG',
       _ => protocol.toUpperCase(),
     };
 
