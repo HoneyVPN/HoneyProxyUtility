@@ -1,12 +1,12 @@
 # HoneyProxyUtility
 
-Универсальный VPN-клиент для Android на базе [sing-box](https://github.com/SagerNet/sing-box).
+Универсальный VPN-клиент для Android и Windows на базе [sing-box](https://github.com/SagerNet/sing-box).
 
-Поддерживаемые протоколы: **VLESS Reality**, **VLESS xHTTP**, **VMess**, **Trojan**, **Shadowsocks**, **Hysteria2**, **TUIC**, **WireGuard**, **NaiveProxy**, **ShadowTLS**.
+Поддерживаемые протоколы: **VLESS Reality**, **VLESS xHTTP**, **VMess**, **Trojan**, **Shadowsocks**, **Hysteria2**, **TUIC**, **WireGuard**, **AmneziaWG**, **NaiveProxy**, **ShadowTLS**.
 
 <p align="left">
   <a href="https://honeyvpn.ru/HoneyProxyUtility.apk">
-    <img src="https://img.shields.io/badge/скачать_APK-v1.1.4-brightgreen?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/скачать_APK-v1.1.8-brightgreen?style=for-the-badge" />
   </a>
   <img src="https://img.shields.io/badge/Android-5.0%2B-green?style=for-the-badge&logo=android" />
   <img src="https://img.shields.io/badge/лицензия-GPL--3.0-blue?style=for-the-badge" />
@@ -21,6 +21,7 @@
 - Встроенная бесплатная подписка
 - Маркетплейс VPN-провайдеров
 - TLS-фрагментация и мультиплексирование
+- **AmneziaWG** — обфусцированный WireGuard с защитой от DPI (формат wg-quick INI и `awg://`)
 
 ## Скачать
 
