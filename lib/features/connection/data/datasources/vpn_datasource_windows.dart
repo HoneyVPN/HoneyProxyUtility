@@ -166,6 +166,10 @@ class WindowsVpnDatasource {
   // ── Proxy mode ────────────────────────────────────────────────────────────────
 
   Future<void> _startProxy(ParsedProxy proxy, File sbExe, AppSettings settings) async {
+    // Kill any leftover sing-box.exe from a previous crashed session.
+    await Process.run('taskkill', ['/F', '/IM', 'sing-box.exe'],
+        runInShell: true).catchError((_) => ProcessResult(0, 0, '', ''));
+
     final tmp     = await getTemporaryDirectory();
     final cfgFile = File('${tmp.path}/honeyvpn_sb.json');
     await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy, settings)));
