@@ -360,32 +360,44 @@ class SingboxConfigGenerator {
   Map<String, dynamic> _direct() => {'type': 'direct', 'tag': 'direct'};
   Map<String, dynamic> _block() => {'type': 'block', 'tag': 'block'};
 
-  /// AWG ping config: endpoint + SOCKS5 inbound. Latency measured via SOCKS5.
-  String generateForAwgPing(AmneziaWGConfig proxy, int socksPort) => jsonEncode({
-    'log': {'level': 'warn'},
-    'dns': {
-      'servers': [
-        {'type': 'udp', 'address': '1.1.1.1', 'tag': 'dns', 'detour': 'direct'},
-      ],
-      'final': 'dns',
-    },
-    'endpoints': [_amneziaWGEndpoint(proxy)],
-    'inbounds': [{
-      'type': 'mixed',
-      'tag': 'mixed-in',
-      'listen': '127.0.0.1',
-      'listen_port': socksPort,
-    }],
-    'outbounds': [_direct()],
-    'route': {
-      'rules': [
-        {'action': 'sniff'},
-        {'protocol': 'dns', 'outbound': 'direct'},
-      ],
-      'final': 'proxy',
-      'auto_detect_interface': true,
-    },
-  });
+  /// AWG ping config: WireGuard outbound with amnezia params + Clash API.
+  /// Uses the same approach as other protocols so Clash API can drive the delay test.
+  String generateForAwgPing(AmneziaWGConfig proxy, int apiPort) {
+    final amnezia = <String, dynamic>{
+      'jc': proxy.jc, 'jmin': proxy.jmin, 'jmax': proxy.jmax,
+      if (proxy.s1 != 0) 's1': proxy.s1,
+      if (proxy.s2 != 0) 's2': proxy.s2,
+      if (proxy.s3 != 0) 's3': proxy.s3,
+      if (proxy.s4 != 0) 's4': proxy.s4,
+      if (proxy.h1 != 0) 'h1': proxy.h1,
+      if (proxy.h2 != 0) 'h2': proxy.h2,
+      if (proxy.h3 != 0) 'h3': proxy.h3,
+      if (proxy.h4 != 0) 'h4': proxy.h4,
+    };
+    final out = <String, dynamic>{
+      'type': 'wireguard',
+      'tag': 'proxy',
+      'server': proxy.host,
+      'server_port': proxy.port,
+      'private_key': proxy.privateKey,
+      'peer_public_key': proxy.publicKey,
+      if (proxy.presharedKey.isNotEmpty) 'pre_shared_key': proxy.presharedKey,
+      'local_address': proxy.addresses.isNotEmpty ? proxy.addresses : ['10.0.0.1/32'],
+      if (proxy.reserved != null) 'reserved': proxy.reserved,
+      'mtu': proxy.mtu,
+      'amnezia': amnezia,
+    };
+    return jsonEncode({
+      'log': {'level': 'warn'},
+      'outbounds': [out, _direct()],
+      'experimental': {
+        'clash_api': {
+          'external_controller': '127.0.0.1:$apiPort',
+          'store_selected': false,
+        },
+      },
+    });
+  }
 
   /// Minimal config for latency testing: no TUN, no inbounds.
   /// sing-box runs as a plain process; Clash API is used to drive the delay test.

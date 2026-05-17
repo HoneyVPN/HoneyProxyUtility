@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File, HttpClient, Platform, Process, ServerSocket, Socket, SocketOption;
-import 'dart:typed_data';
+import 'dart:io' show File, HttpClient, Platform, Process, ServerSocket, Socket;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -233,8 +232,7 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     }
   }
 
-  /// Ping AmneziaWG by spinning up a sing-box endpoint with a SOCKS5 inbound,
-  /// then making a real HTTP request through it and measuring round-trip time.
+  /// Ping AmneziaWG via WireGuard outbound + Clash API (same flow as other protocols).
   Future<double> _pingAndroidAwg(AmneziaWGConfig proxy) async {
     String? libDir;
     try {
@@ -245,37 +243,44 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     final sbPath = '$libDir/libsingbox.so';
     if (!File(sbPath).existsSync()) return -1;
 
-    int socksPort;
+    int apiPort;
     try {
       final ss = await ServerSocket.bind('127.0.0.1', 0);
-      socksPort = ss.port;
+      apiPort = ss.port;
       await ss.close();
     } catch (_) {
       return -1;
     }
 
     final dir = await getTemporaryDirectory();
-    final cfgFile = File('${dir.path}/sbping_awg_$socksPort.json');
+    final cfgFile = File('${dir.path}/sbping_awg_$apiPort.json');
     Process? process;
     try {
-      final configJson = SingboxConfigGenerator().generateForAwgPing(proxy, socksPort);
+      final configJson = SingboxConfigGenerator().generateForAwgPing(proxy, apiPort);
       await cfgFile.writeAsString(configJson);
       process = await Process.start(sbPath, ['run', '-c', cfgFile.path]);
       process.stdout.drain<void>();
-      // Collect stderr for diagnostics; drain to avoid blocking
-      final stderrBuf = StringBuffer();
-      process.stderr
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .listen((s) => stderrBuf.write(s));
+      process.stderr.drain<void>();
 
-      // AWG needs longer to establish the tunnel (UDP handshake + endpoint setup)
-      if (!await _waitForPort('127.0.0.1', socksPort, 12000)) {
-        // ignore: avoid_print
-        print('[AWG ping] SOCKS5 port never opened. stderr: $stderrBuf');
+      // WG handshake over UDP takes longer than TCP — wait up to 12s
+      if (!await _waitForPort('127.0.0.1', apiPort, 12000)) return -1;
+
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+      try {
+        final req = await client.getUrl(Uri.parse(
+          'http://127.0.0.1:$apiPort/proxies/proxy/delay'
+          '?timeout=5000&url=http%3A%2F%2Fwww.gstatic.com%2Fgenerate_204',
+        ));
+        final resp = await req.close().timeout(const Duration(seconds: 8));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(const Utf8Decoder()).join();
+          final data = jsonDecode(body) as Map<String, dynamic>;
+          return (data['delay'] as num).toDouble();
+        }
         return -1;
+      } finally {
+        client.close(force: true);
       }
-
-      return await _pingViaSocks5('127.0.0.1', socksPort);
     } catch (_) {
       return -1;
     } finally {
@@ -284,71 +289,6 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     }
   }
 
-  /// Sends an HTTP GET to www.gstatic.com/generate_204 through a SOCKS5 proxy
-  /// and returns the round-trip time in milliseconds.
-  Future<double> _pingViaSocks5(String proxyHost, int proxyPort) async {
-    const target = 'www.gstatic.com';
-    const targetPort = 80;
-
-    Socket? sock;
-    final sw = Stopwatch();
-    final buf = <int>[];
-    Completer<void>? pending;
-
-    try {
-      sock = await Socket.connect(proxyHost, proxyPort,
-          timeout: const Duration(seconds: 5));
-      sock.setOption(SocketOption.tcpNoDelay, true);
-
-      sock.listen(
-        (data) {
-          buf.addAll(data);
-          pending?.complete();
-          pending = null;
-        },
-        onError: (e) { pending?.completeError(e as Object); pending = null; },
-      );
-
-      Future<void> ensureBytes(int n, {int timeoutSec = 5}) async {
-        while (buf.length < n) {
-          pending = Completer<void>();
-          await pending!.future.timeout(Duration(seconds: timeoutSec));
-        }
-      }
-
-      // SOCKS5 greeting: version 5, 1 method, no-auth
-      sock.add([5, 1, 0]);
-      await sock.flush();
-      await ensureBytes(2);
-      if (buf[1] != 0) return -1;
-      buf.removeRange(0, 2);
-
-      // CONNECT to target — AWG tunnel handshake happens here, needs extra time
-      final hostBytes = utf8.encode(target);
-      sock.add([5, 1, 0, 3, hostBytes.length, ...hostBytes,
-        (targetPort >> 8) & 0xFF, targetPort & 0xFF]);
-      await sock.flush();
-      // Reply is at least 10 bytes for IPv4 (most common)
-      await ensureBytes(10, timeoutSec: 20);
-      if (buf[1] != 0) return -1;
-      buf.clear();
-
-      // HTTP GET — start timing here (tunnel already up, this measures server RTT)
-      sw.start();
-      sock.add(Uint8List.fromList(utf8.encode(
-        'GET /generate_204 HTTP/1.0\r\nHost: $target\r\nConnection: close\r\n\r\n',
-      )));
-      await sock.flush();
-      await ensureBytes(1);
-      sw.stop();
-      return sw.elapsedMilliseconds.toDouble();
-    } catch (_) {
-      return -1;
-    } finally {
-      sw.stop();
-      await sock?.close();
-    }
-  }
 
   Future<bool> _waitForPort(String host, int port, int timeoutMs) async {
     final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs));
