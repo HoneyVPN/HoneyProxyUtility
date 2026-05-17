@@ -304,6 +304,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             style: FilledButton.styleFrom(backgroundColor: NexColors.error),
             onPressed: () {
               Navigator.pop(c);
+              final conn = ref.read(connectionNotifierProvider);
+              if (conn.activeServer != null &&
+                  group.any((sv) => sv.id == conn.activeServer!.id) &&
+                  (conn.isConnected || conn.isBusy)) {
+                ref.read(connectionNotifierProvider.notifier).disconnect();
+              }
               if (subscriptionId.isNotEmpty) {
                 final subs = ref.read(subscriptionsProvider).value?.subs ?? [];
                 final sub = subs.where((sub) => sub.url == subscriptionId).firstOrNull;
@@ -335,6 +341,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             style: FilledButton.styleFrom(backgroundColor: NexColors.error),
             onPressed: () {
               Navigator.pop(c);
+              final conn = ref.read(connectionNotifierProvider);
+              if (conn.activeServer?.id == sv.id && (conn.isConnected || conn.isBusy)) {
+                ref.read(connectionNotifierProvider.notifier).disconnect();
+              }
               ref.read(serversNotifierProvider.notifier).delete(sv.id);
             },
             child: Text(s.deleteButton),
