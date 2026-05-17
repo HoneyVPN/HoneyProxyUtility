@@ -74,7 +74,8 @@ class WindowsVpnDatasource {
     // Raw IP without CIDR for OS route command.
     final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
 
-    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, bindInterface: physicalIface, excludeAddresses: proxyIps)));
+    final cachePath = '${sbExe.parent.path}/honeyvpn_cache.db';
+    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, bindInterface: physicalIface, excludeAddresses: proxyIps, cachePath: cachePath)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
     final sbPath   = sbExe.path.replaceAll("'", "''");
@@ -170,9 +171,11 @@ class WindowsVpnDatasource {
     await Process.run('taskkill', ['/F', '/IM', 'sing-box.exe'],
         runInShell: true).catchError((_) => ProcessResult(0, 0, '', ''));
 
-    final tmp     = await getTemporaryDirectory();
-    final cfgFile = File('${tmp.path}/honeyvpn_sb.json');
-    await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy, settings)));
+    final tmp       = await getTemporaryDirectory();
+    final cfgFile   = File('${tmp.path}/honeyvpn_sb.json');
+    // Persistent cache so rule sets survive restarts (avoids re-downloading on every connect).
+    final cachePath = '${sbExe.parent.path}/honeyvpn_cache.db';
+    await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy, settings, cachePath: cachePath)));
 
     final stderrBuf = StringBuffer();
     final proc = await Process.start(
@@ -197,12 +200,29 @@ class WindowsVpnDatasource {
       }
     });
 
-    await Future.delayed(const Duration(milliseconds: 2000));
+    // Poll Clash API until sing-box is ready (rule set downloads can take 30+ s on first run).
+    bool started = false;
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    while (!started && DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (_sbProcess == null) break;
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 1);
+      try {
+        final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/'));
+        await req.close();
+        started = true;
+      } catch (_) {
+      } finally {
+        client.close();
+      }
+    }
 
-    if (_sbProcess == null) {
+    if (_sbProcess == null || !started) {
+      _sbProcess?.kill();
+      _sbProcess = null;
       final err      = stderrBuf.toString().trim();
       final lastLine = err.isNotEmpty ? err.split('\n').last : 'unknown error';
-      throw Exception('sing-box exited unexpectedly: $lastLine');
+      throw Exception('sing-box не запустился: $lastLine');
     }
 
     await _setSystemProxy('127.0.0.1', settings.httpPort);
@@ -356,7 +376,7 @@ class WindowsVpnDatasource {
 
   // ── Config builders ───────────────────────────────────────────────────────────
 
-  Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy, AppSettings s) {
+  Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy, AppSettings s, {String? cachePath}) {
     final listen = s.allowLanConnections ? '0.0.0.0' : '127.0.0.1';
 
     final routeRules = <Map<String, dynamic>>[
@@ -381,12 +401,15 @@ class WindowsVpnDatasource {
       ]);
     }
 
+    final experimental = <String, dynamic>{
+      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+      if (cachePath != null) 'cache_file': {'enabled': true, 'path': cachePath},
+    };
+
     if (proxy is AmneziaWGConfig) {
       return {
         'log': {'level': s.logLevel.name},
-        'experimental': {
-          'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-        },
+        'experimental': experimental,
         'inbounds': [
           {'type': 'socks', 'tag': 'socks-in', 'listen': listen, 'listen_port': s.socksPort},
           {'type': 'http',  'tag': 'http-in',  'listen': listen, 'listen_port': s.httpPort},
@@ -407,9 +430,7 @@ class WindowsVpnDatasource {
 
     return {
       'log': {'level': s.logLevel.name},
-      'experimental': {
-        'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-      },
+      'experimental': experimental,
       'inbounds': [
         {'type': 'socks', 'tag': 'socks-in', 'listen': listen, 'listen_port': s.socksPort},
         {'type': 'http',  'tag': 'http-in',  'listen': listen, 'listen_port': s.httpPort},
@@ -461,6 +482,7 @@ class WindowsVpnDatasource {
     ParsedProxy proxy, {
     String? bindInterface,
     List<String> excludeAddresses = const [],
+    String? cachePath,
   }) {
     final tunInbound = <String, dynamic>{
       'type': 'tun',
@@ -478,6 +500,11 @@ class WindowsVpnDatasource {
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
 
+    final tunExperimental = <String, dynamic>{
+      'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+      if (cachePath != null) 'cache_file': {'enabled': true, 'path': cachePath},
+    };
+
     if (proxy is AmneziaWGConfig) {
       return {
         'log': {'level': 'warn'},
@@ -489,9 +516,7 @@ class WindowsVpnDatasource {
           'rules': [{'outbound': 'any', 'server': 'local'}],
           'final': 'remote',
         },
-        'experimental': {
-          'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-        },
+        'experimental': tunExperimental,
         'inbounds': [tunInbound],
         'endpoints': [_buildAwgEndpoint(proxy)],
         'outbounds': [
@@ -520,9 +545,7 @@ class WindowsVpnDatasource {
         ],
         'final': 'remote',
       },
-      'experimental': {
-        'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
-      },
+      'experimental': tunExperimental,
       'inbounds': [tunInbound],
       'outbounds': [
         proxyOutbound,
