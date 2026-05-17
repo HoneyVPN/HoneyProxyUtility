@@ -262,10 +262,18 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
       await cfgFile.writeAsString(configJson);
       process = await Process.start(sbPath, ['run', '-c', cfgFile.path]);
       process.stdout.drain<void>();
-      process.stderr.drain<void>();
+      // Collect stderr for diagnostics; drain to avoid blocking
+      final stderrBuf = StringBuffer();
+      process.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((s) => stderrBuf.write(s));
 
       // AWG needs longer to establish the tunnel (UDP handshake + endpoint setup)
-      if (!await _waitForPort('127.0.0.1', socksPort, 12000)) return -1;
+      if (!await _waitForPort('127.0.0.1', socksPort, 12000)) {
+        // ignore: avoid_print
+        print('[AWG ping] SOCKS5 port never opened. stderr: $stderrBuf');
+        return -1;
+      }
 
       return await _pingViaSocks5('127.0.0.1', socksPort);
     } catch (_) {
