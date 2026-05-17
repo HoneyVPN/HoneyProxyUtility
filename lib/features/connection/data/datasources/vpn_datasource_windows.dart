@@ -74,7 +74,8 @@ class WindowsVpnDatasource {
     // Raw IP without CIDR for OS route command.
     final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
 
-    final cachePath = '${sbExe.parent.path}/honeyvpn_cache.db';
+    final appSupport = await getApplicationSupportDirectory();
+    final cachePath  = '${appSupport.path}/honeyvpn_cache.db';
     await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, bindInterface: physicalIface, excludeAddresses: proxyIps, cachePath: cachePath)));
     if (stopFile.existsSync()) stopFile.deleteSync();
 
@@ -172,9 +173,10 @@ class WindowsVpnDatasource {
         runInShell: true).catchError((_) => ProcessResult(0, 0, '', ''));
 
     final tmp       = await getTemporaryDirectory();
+    final appSupport = await getApplicationSupportDirectory();
     final cfgFile   = File('${tmp.path}/honeyvpn_sb.json');
-    // Persistent cache so rule sets survive restarts (avoids re-downloading on every connect).
-    final cachePath = '${sbExe.parent.path}/honeyvpn_cache.db';
+    // Persistent cache in AppData so rule sets survive restarts (avoids re-downloading on every connect).
+    final cachePath = '${appSupport.path}/honeyvpn_cache.db';
     await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy, settings, cachePath: cachePath)));
 
     final stderrBuf = StringBuffer();
