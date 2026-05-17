@@ -12,6 +12,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    if: github.repository == 'HoneyVPN/honeyproxyutility-'
 
     steps:
       - uses: actions/checkout@v4
