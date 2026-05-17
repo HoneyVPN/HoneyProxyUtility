@@ -232,61 +232,23 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     }
   }
 
-  /// Ping AmneziaWG via WireGuard outbound + Clash API (same flow as other protocols).
+  /// AWG ping: ICMP via system ping binary.
+  /// WireGuard is a UDP L3 tunnel — there's no way to ping it without
+  /// completing a handshake. ICMP RTT to the server host is the best
+  /// practical approximation (WireGuard adds negligible overhead).
   Future<double> _pingAndroidAwg(AmneziaWGConfig proxy) async {
-    String? libDir;
     try {
-      libDir = await _nativeChannel.invokeMethod<String>('getNativeLibDir');
-    } catch (_) {}
-    if (libDir == null) return -1;
-
-    final sbPath = '$libDir/libsingbox.so';
-    if (!File(sbPath).existsSync()) return -1;
-
-    int apiPort;
-    try {
-      final ss = await ServerSocket.bind('127.0.0.1', 0);
-      apiPort = ss.port;
-      await ss.close();
-    } catch (_) {
-      return -1;
-    }
-
-    final dir = await getTemporaryDirectory();
-    final cfgFile = File('${dir.path}/sbping_awg_$apiPort.json');
-    Process? process;
-    try {
-      final configJson = SingboxConfigGenerator().generateForAwgPing(proxy, apiPort);
-      await cfgFile.writeAsString(configJson);
-      process = await Process.start(sbPath, ['run', '-c', cfgFile.path]);
-      process.stdout.drain<void>();
-      process.stderr.drain<void>();
-
-      // WG handshake over UDP takes longer than TCP — wait up to 12s
-      if (!await _waitForPort('127.0.0.1', apiPort, 12000)) return -1;
-
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-      try {
-        final req = await client.getUrl(Uri.parse(
-          'http://127.0.0.1:$apiPort/proxies/proxy/delay'
-          '?timeout=5000&url=http%3A%2F%2Fwww.gstatic.com%2Fgenerate_204',
-        ));
-        final resp = await req.close().timeout(const Duration(seconds: 8));
-        if (resp.statusCode == 200) {
-          final body = await resp.transform(const Utf8Decoder()).join();
-          final data = jsonDecode(body) as Map<String, dynamic>;
-          return (data['delay'] as num).toDouble();
-        }
-        return -1;
-      } finally {
-        client.close(force: true);
+      final result = await Process.run(
+        '/system/bin/ping',
+        ['-c', '1', '-W', '3', proxy.host],
+      ).timeout(const Duration(seconds: 5));
+      if (result.exitCode == 0) {
+        final out = result.stdout as String;
+        final m = RegExp(r'time[=<]([\d.]+)\s*ms').firstMatch(out);
+        if (m != null) return double.parse(m.group(1)!);
       }
-    } catch (_) {
-      return -1;
-    } finally {
-      process?.kill();
-      try { cfgFile.deleteSync(); } catch (_) {}
-    }
+    } catch (_) {}
+    return -1;
   }
 
 
