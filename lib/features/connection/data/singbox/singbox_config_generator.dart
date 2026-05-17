@@ -217,7 +217,7 @@ class SingboxConfigGenerator {
       'tag': 'proxy',
       'address': c.addresses.isNotEmpty ? c.addresses : ['10.0.0.1/32'],
       'private_key': c.privateKey,
-      'listen_port': 51820,
+      'listen_port': 0,
       'peers': [peer],
       'mtu': c.mtu,
       'amnezia': amnezia,

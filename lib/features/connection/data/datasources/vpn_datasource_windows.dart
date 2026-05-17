@@ -376,6 +376,31 @@ class WindowsVpnDatasource {
         _remoteRuleSet('ru',                   'ru.srs'),
       ]);
     }
+
+    if (proxy is AmneziaWGConfig) {
+      return {
+        'log': {'level': s.logLevel.name},
+        'experimental': {
+          'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+        },
+        'inbounds': [
+          {'type': 'socks', 'tag': 'socks-in', 'listen': listen, 'listen_port': s.socksPort},
+          {'type': 'http',  'tag': 'http-in',  'listen': listen, 'listen_port': s.httpPort},
+        ],
+        'endpoints': [_buildAwgEndpoint(proxy)],
+        'outbounds': [
+          {'type': 'direct', 'tag': 'direct'},
+          {'type': 'block',  'tag': 'block'},
+        ],
+        'route': {
+          'rules': routeRules,
+          if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
+          'final': 'proxy',
+          'auto_detect_interface': true,
+        },
+      };
+    }
+
     return {
       'log': {'level': s.logLevel.name},
       'experimental': {
@@ -433,8 +458,50 @@ class WindowsVpnDatasource {
     String? bindInterface,
     List<String> excludeAddresses = const [],
   }) {
+    final tunInbound = <String, dynamic>{
+      'type': 'tun',
+      'tag': 'tun-in',
+      'address': ['198.18.0.1/16'],
+      'auto_route': true,
+      'strict_route': false,
+      'stack': 'mixed',
+      if (excludeAddresses.isNotEmpty)
+        'route_exclude_address': excludeAddresses,
+    };
+    final routeRules = [
+      {'action': 'sniff'},
+      {'protocol': 'dns', 'action': 'hijack-dns'},
+      {'ip_is_private': true, 'outbound': 'direct'},
+    ];
+
+    if (proxy is AmneziaWGConfig) {
+      return {
+        'log': {'level': 'warn'},
+        'dns': {
+          'servers': [
+            {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
+            {'tag': 'local',  'address': 'local',          'detour': 'direct'},
+          ],
+          'rules': [{'outbound': 'any', 'server': 'local'}],
+          'final': 'remote',
+        },
+        'experimental': {
+          'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
+        },
+        'inbounds': [tunInbound],
+        'endpoints': [_buildAwgEndpoint(proxy)],
+        'outbounds': [
+          {'type': 'direct', 'tag': 'direct'},
+        ],
+        'route': {
+          'rules': routeRules,
+          'final': 'proxy',
+          'auto_detect_interface': true,
+        },
+      };
+    }
+
     final proxyOutbound = _buildOutbound(proxy);
-    // Bind proxy outbound to physical NIC — backup routing loop prevention.
     if (bindInterface != null) proxyOutbound['bind_interface'] = bindInterface;
 
     return {
@@ -452,30 +519,13 @@ class WindowsVpnDatasource {
       'experimental': {
         'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
       },
-      'inbounds': [
-        {
-          'type': 'tun',
-          'tag': 'tun-in',
-          'address': ['198.18.0.1/16'],
-          'auto_route': true,
-          'strict_route': false,
-          'stack': 'mixed',
-          // Exclude proxy server IPs so sing-box never routes its own
-          // connections to the proxy through TUN (primary routing loop fix).
-          if (excludeAddresses.isNotEmpty)
-            'route_exclude_address': excludeAddresses,
-        },
-      ],
+      'inbounds': [tunInbound],
       'outbounds': [
         proxyOutbound,
         {'type': 'direct', 'tag': 'direct'},
       ],
       'route': {
-        'rules': [
-          {'action': 'sniff'},
-          {'protocol': 'dns', 'action': 'hijack-dns'},
-          {'ip_is_private': true, 'outbound': 'direct'},
-        ],
+        'rules': routeRules,
         'final': 'proxy',
         'auto_detect_interface': true,
       },
@@ -494,6 +544,36 @@ class WindowsVpnDatasource {
     const adBase = 'https://github.com/SagerNet/sing-geosite/raw/rule-set';
     final url = filename == 'geosite-category-ads-all.srs' ? '$adBase/$filename' : '$base/$filename';
     return {'type': 'remote', 'tag': tag, 'format': 'binary', 'url': url, 'download_detour': 'direct', 'update_interval': '7d'};
+  }
+
+  Map<String, dynamic> _buildAwgEndpoint(AmneziaWGConfig c) {
+    final peer = <String, dynamic>{
+      'address': c.host,
+      'port': c.port,
+      'public_key': c.publicKey,
+      'allowed_ips': ['0.0.0.0/0', '::/0'],
+    };
+    if (c.presharedKey.isNotEmpty) peer['pre_shared_key'] = c.presharedKey;
+    if (c.reserved != null) peer['reserved'] = c.reserved;
+    final amnezia = <String, dynamic>{'jc': c.jc, 'jmin': c.jmin, 'jmax': c.jmax};
+    if (c.s1 != 0) amnezia['s1'] = c.s1;
+    if (c.s2 != 0) amnezia['s2'] = c.s2;
+    if (c.s3 != 0) amnezia['s3'] = c.s3;
+    if (c.s4 != 0) amnezia['s4'] = c.s4;
+    if (c.h1 != 0) amnezia['h1'] = c.h1;
+    if (c.h2 != 0) amnezia['h2'] = c.h2;
+    if (c.h3 != 0) amnezia['h3'] = c.h3;
+    if (c.h4 != 0) amnezia['h4'] = c.h4;
+    return {
+      'type': 'wireguard',
+      'tag': 'proxy',
+      'address': c.addresses.isNotEmpty ? c.addresses : ['10.0.0.1/32'],
+      'private_key': c.privateKey,
+      'listen_port': 0,
+      'peers': [peer],
+      'mtu': c.mtu,
+      'amnezia': amnezia,
+    };
   }
 
   Map<String, dynamic> _buildOutbound(ParsedProxy proxy) => switch (proxy) {

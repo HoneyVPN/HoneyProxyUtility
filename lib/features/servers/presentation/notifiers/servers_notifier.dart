@@ -301,10 +301,10 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
         onError: (e) { pending?.completeError(e as Object); pending = null; },
       );
 
-      Future<void> ensureBytes(int n) async {
+      Future<void> ensureBytes(int n, {int timeoutSec = 5}) async {
         while (buf.length < n) {
           pending = Completer<void>();
-          await pending!.future.timeout(const Duration(seconds: 5));
+          await pending!.future.timeout(Duration(seconds: timeoutSec));
         }
       }
 
@@ -315,13 +315,13 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
       if (buf[1] != 0) return -1;
       buf.removeRange(0, 2);
 
-      // CONNECT to target
+      // CONNECT to target — AWG tunnel handshake happens here, needs extra time
       final hostBytes = utf8.encode(target);
       sock.add([5, 1, 0, 3, hostBytes.length, ...hostBytes,
         (targetPort >> 8) & 0xFF, targetPort & 0xFF]);
       await sock.flush();
       // Reply is at least 10 bytes for IPv4 (most common)
-      await ensureBytes(10);
+      await ensureBytes(10, timeoutSec: 20);
       if (buf[1] != 0) return -1;
       buf.clear();
 
