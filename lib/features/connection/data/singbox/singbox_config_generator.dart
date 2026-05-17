@@ -322,6 +322,29 @@ class SingboxConfigGenerator {
   Map<String, dynamic> _direct() => {'type': 'direct', 'tag': 'direct'};
   Map<String, dynamic> _block() => {'type': 'block', 'tag': 'block'};
 
+  /// Minimal config for latency testing: no TUN, no inbounds.
+  /// sing-box runs as a plain process; Clash API is used to drive the delay test.
+  String generateForPing(ParsedProxy proxy, int apiPort) {
+    final proxyOut = _outbound(proxy);
+    final outbounds = <Map<String, dynamic>>[proxyOut];
+    if (proxy is ShadowTlsConfig) {
+      final inner = _outbound(proxy.innerProxy);
+      inner['tag'] = 'shadowtls-inner';
+      outbounds.add(inner);
+    }
+    outbounds.add(_direct());
+    return jsonEncode({
+      'log': {'level': 'warn'},
+      'outbounds': outbounds,
+      'experimental': {
+        'clash_api': {
+          'external_controller': '127.0.0.1:$apiPort',
+          'store_selected': false,
+        },
+      },
+    });
+  }
+
   String generateForAndroid(ParsedProxy proxy, AppSettings settings) {
     final proxyOut = _outbound(proxy);
     final supportsSmux = proxy is! Hysteria2Config &&
