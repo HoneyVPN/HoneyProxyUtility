@@ -90,7 +90,7 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
 
       if (!kIsWeb && !Platform.isAndroid && !Platform.isIOS) {
         if (proxy is TuicConfig || proxy is WireGuardConfig ||
-            proxy is AmneziaWGConfig || proxy is NaiveConfig || proxy is ShadowTlsConfig) {
+            proxy is NaiveConfig || proxy is ShadowTlsConfig) {
           state = state.copyWith(
             status: ConnectionStatus.error,
             errorMessage: '${proxy.protocolLabel} не поддерживается на Windows',
