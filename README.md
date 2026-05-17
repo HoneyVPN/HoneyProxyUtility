@@ -5,8 +5,8 @@
 Поддерживаемые протоколы: **VLESS Reality**, **VLESS xHTTP**, **VMess**, **Trojan**, **Shadowsocks**, **Hysteria2**, **TUIC**, **WireGuard**, **NaiveProxy**, **ShadowTLS**.
 
 <p align="left">
-  <a href="https://github.com/HoneyVPN/HoneyProxyUtility/releases/latest">
-    <img src="https://img.shields.io/github/v/release/HoneyVPN/HoneyProxyUtility?label=скачать&style=for-the-badge" />
+  <a href="https://honeyvpn.ru/HoneyProxyUtility.apk">
+    <img src="https://img.shields.io/badge/APK-v1.1.3-brightgreen?style=for-the-badge&logo=android" />
   </a>
   <img src="https://img.shields.io/badge/Android-5.0%2B-green?style=for-the-badge&logo=android" />
   <img src="https://img.shields.io/badge/лицензия-GPL--3.0-blue?style=for-the-badge" />
