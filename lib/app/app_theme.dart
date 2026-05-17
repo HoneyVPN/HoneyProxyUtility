@@ -42,6 +42,7 @@ class NexColors {
   static const hysteria2   = Color(0xFFCF6679);  // muted rose
   static const tuic        = Color(0xFFD4915A);  // warm orange
   static const wireguard   = Color(0xFF4CAF81);  // sage green
+  static const amneziaWG  = Color(0xFF5B9BD5);  // steel blue
   static const naive       = Color(0xFF8BB56A);  // olive green
 }
 
