@@ -6,7 +6,7 @@
 
 <p align="left">
   <a href="https://honeyvpn.ru/HoneyProxyUtility.apk">
-    <img src="https://img.shields.io/badge/скачать_APK-v1.1.8-brightgreen?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/скачать_APK-v1.1.15-brightgreen?style=for-the-badge" />
   </a>
   <img src="https://img.shields.io/badge/Android-5.0%2B-green?style=for-the-badge&logo=android" />
   <img src="https://img.shields.io/badge/лицензия-GPL--3.0-blue?style=for-the-badge" />
