@@ -1,12 +1,15 @@
 import 'dart:convert';
-import 'dart:io' show Socket, SocketException;
+import 'dart:io' show File, HttpClient, Platform, Process, ServerSocket, Socket;
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/server_profile_model.dart';
+import '../../../connection/data/singbox/singbox_config_generator.dart';
+import '../../../converter/data/parsers/link_dispatcher.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
 
 const _serversKey = 'honeyvpn_servers';
@@ -127,6 +130,9 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     state = AsyncData(updated);
   }
 
+  static const _nativeChannel = MethodChannel('ru.honeyvpn.proxy/native');
+  static final _dispatcher = const LinkDispatcher();
+
   Future<void> updateLatency(int id, double ms) async {
     final current = state.value ?? [];
     final updated = current.map((s) => s.id == id ? s.copyWith(latencyMs: ms) : s).toList();
@@ -135,9 +141,106 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
   }
 
   Future<double> testLatency(ServerProfileModel server) async {
-    final ms = await _pingTcp(server.host, server.port);
+    final ms = await _testServerLatency(server);
     await updateLatency(server.id, ms);
     return ms;
+  }
+
+  Future<double> _testServerLatency(ServerProfileModel server) async {
+    try {
+      final raw = (jsonDecode(server.configJson) as Map<String, dynamic>)['rawLink'] as String?;
+      if (raw != null) {
+        final proxy = _dispatcher.dispatch(raw);
+        return await _pingProxy(proxy);
+      }
+    } catch (_) {}
+    return -1;
+  }
+
+  Future<double> _pingProxy(ParsedProxy proxy) async {
+    if (Platform.isAndroid) return _pingAndroid(proxy);
+    // Windows / other: TCP fallback (sing-box subprocess not set up there)
+    return _pingTcp(proxy.host, proxy.port);
+  }
+
+  Future<double> _pingAndroid(ParsedProxy proxy) async {
+    // Get sing-box binary path via native channel
+    String? libDir;
+    try {
+      libDir = await _nativeChannel.invokeMethod<String>('getNativeLibDir');
+    } catch (_) {}
+    if (libDir == null) return -1;
+
+    final sbPath = '$libDir/libsingbox.so';
+    if (!File(sbPath).existsSync()) return -1;
+
+    // Bind port 0 to let the OS pick a free port, then release it for sing-box
+    int apiPort;
+    try {
+      final ss = await ServerSocket.bind('127.0.0.1', 0);
+      apiPort = ss.port;
+      await ss.close();
+    } catch (_) {
+      return -1;
+    }
+
+    String configJson;
+    try {
+      configJson = SingboxConfigGenerator().generateForPing(proxy, apiPort);
+    } catch (_) {
+      return -1;
+    }
+
+    final dir = await getTemporaryDirectory();
+    final cfgFile = File('${dir.path}/sbping_$apiPort.json');
+
+    Process? process;
+    try {
+      await cfgFile.writeAsString(configJson);
+      process = await Process.start(sbPath, ['run', '-c', cfgFile.path]);
+      // Drain output streams to prevent the process from blocking on a full pipe buffer
+      process.stdout.drain<void>();
+      process.stderr.drain<void>();
+
+      if (!await _waitForPort('127.0.0.1', apiPort, 8000)) return -1;
+
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+      try {
+        final req = await client.getUrl(Uri.parse(
+          'http://127.0.0.1:$apiPort/proxies/proxy/delay'
+          '?timeout=5000&url=http%3A%2F%2Fwww.gstatic.com%2Fgenerate_204',
+        ));
+        final resp = await req.close().timeout(const Duration(seconds: 7));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(const Utf8Decoder()).join();
+          final data = jsonDecode(body) as Map<String, dynamic>;
+          return (data['delay'] as num).toDouble();
+        }
+        return -1;
+      } finally {
+        client.close(force: true);
+      }
+    } catch (_) {
+      return -1;
+    } finally {
+      process?.kill();
+      try { cfgFile.deleteSync(); } catch (_) {}
+    }
+  }
+
+  Future<bool> _waitForPort(String host, int port, int timeoutMs) async {
+    final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs));
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final s = await Socket.connect(host, port,
+            timeout: const Duration(milliseconds: 300));
+        await s.close();
+        return true;
+      } catch (_) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
+    return false;
   }
 
   Future<double> _pingTcp(String host, int port) async {
@@ -147,29 +250,21 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
       sock = await Socket.connect(host, port, timeout: const Duration(seconds: 5));
       sw.stop();
       return sw.elapsedMilliseconds.toDouble();
-    } on SocketException catch (e) {
-      sw.stop();
-      // TCP RST (connection refused) means host is reachable — elapsed time = RTT.
-      // This lets UDP-only protocols (hy2, tuic) get a latency reading too.
-      final code = e.osError?.errorCode;
-      if (code == 111 || code == 61 /* ECONNREFUSED Linux/macOS */) {
-        return sw.elapsedMilliseconds.toDouble();
-      }
-      return -1;
     } catch (_) {
       return -1;
     } finally {
+      sw.stop();
       await sock?.close();
     }
   }
 
+  // Sequential to avoid spawning many sing-box processes simultaneously.
+  // UI updates after each server completes, so users see pings appear one by one.
   Future<void> testAllLatency() async {
     final servers = List<ServerProfileModel>.of(state.value ?? []);
-    await Future.wait(servers.map((s) async {
-      try {
-        await testLatency(s);
-      } catch (_) {}
-    }));
+    for (final s in servers) {
+      try { await testLatency(s); } catch (_) {}
+    }
   }
 
   Future<void> replaceSubscription(String subscriptionId, List<ParsedProxy> proxies) async {
