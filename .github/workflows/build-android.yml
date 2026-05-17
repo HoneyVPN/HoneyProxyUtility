@@ -93,6 +93,9 @@ jobs:
           body: |
             ## HoneyProxyUtility ${{ github.ref_name }} — Android
 
+            ### Поддерживаемые протоколы
+            VLESS Reality · VLESS xHTTP · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard · **AmneziaWG** · NaiveProxy · ShadowTLS
+
             ### Скачать APK
             - **arm64-v8a** (большинство современных телефонов)
             - **armeabi-v7a** (старые телефоны)
