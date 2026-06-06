@@ -101,6 +101,44 @@ class ProviderCatalog {
     isOwn: true,
   );
 
-  static List<VpnProvider> get top3 => [_honeyvpn];
-  static List<VpnProvider> get all  => [_honeyvpn];
+  static const _alphavpn = VpnProvider(
+    id: 'alphavpn',
+    name: 'AlphaVPN',
+    tagline: '⚡ AmneziaWG — обход любых блокировок',
+    logoAsset: 'assets/images/alphavpn_logo.png',
+    websiteUrl: 'https://t.me/alphaawg_bot',
+    referralUrl: 'https://t.me/alphaawg_bot',
+    rating: 5.0,
+    reviewCount: 312,
+    tier: ProviderTier.platinum,
+    categories: [ProviderCategory.privacy, ProviderCategory.streaming],
+    protocols: ['AmneziaWG'],
+    serverCount: 2,
+    countryCount: 2,
+    pricing: PricingInfo(
+      hasFree: true,
+      monthlyPriceUsd: 2,
+      priceLabel: 'от 150₽ / мес',
+      trialDescription: '3 дня бесплатно 🎁',
+      freeDescription: '3 дня бесплатного доступа',
+    ),
+    features: [
+      'AmneziaWG протокол',
+      'Обход DPI блокировок',
+      '🇫🇷 Франция',
+      '🇩🇪 Германия',
+      'Все сервисы работают',
+      'Смена серверов',
+    ],
+    shortDescription:
+        '⚡ AlphaVPN — VPN-сервис на базе AmneziaWG, '
+        'обфусцированного WireGuard. Обходит DPI и любые блокировки. '
+        'Серверы во Франции и Германии · 3 дня бесплатно 🎁 · '
+        'Мгновенная настройка через Telegram-бот.',
+    supportsImport: false,
+    isOwn: true,
+  );
+
+  static List<VpnProvider> get top3 => [_honeyvpn, _alphavpn];
+  static List<VpnProvider> get all  => [_honeyvpn, _alphavpn];
 }
