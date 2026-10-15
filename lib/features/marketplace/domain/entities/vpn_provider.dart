@@ -5,23 +5,40 @@ enum ProviderCategory { privacy, streaming, gaming, business, budget, p2p }
 class PricingInfo {
   final bool hasFree;
   final String? freeDescription;
+  final String? freeDescriptionEn;
   final double monthlyPriceUsd;
   final String? trialDescription;
+  final String? trialDescriptionEn;
   final String? priceLabel;
+  final String? priceLabelEn;
 
   const PricingInfo({
     required this.hasFree,
     this.freeDescription,
+    this.freeDescriptionEn,
     required this.monthlyPriceUsd,
     this.trialDescription,
+    this.trialDescriptionEn,
     this.priceLabel,
+    this.priceLabelEn,
   });
+
+  String? freeDescriptionForLocale(String locale) =>
+      locale == 'ru' ? freeDescription : freeDescriptionEn ?? freeDescription;
+
+  String? trialDescriptionForLocale(String locale) => locale == 'ru'
+      ? trialDescription
+      : trialDescriptionEn ?? trialDescription;
+
+  String? priceLabelForLocale(String locale) =>
+      locale == 'ru' ? priceLabel : priceLabelEn ?? priceLabel;
 }
 
 class VpnProvider {
   final String id;
   final String name;
   final String tagline;
+  final String? taglineEn;
   final String logoAsset;
   final String websiteUrl;
   final String referralUrl;
@@ -34,7 +51,9 @@ class VpnProvider {
   final int countryCount;
   final PricingInfo pricing;
   final List<String> features;
+  final List<String>? featuresEn;
   final String shortDescription;
+  final String? shortDescriptionEn;
   final bool supportsImport;
   final String? subscriptionUrlTemplate;
   final bool isOwn;
@@ -43,6 +62,7 @@ class VpnProvider {
     required this.id,
     required this.name,
     this.tagline = '',
+    this.taglineEn,
     this.logoAsset = '',
     required this.websiteUrl,
     required this.referralUrl,
@@ -55,11 +75,23 @@ class VpnProvider {
     this.countryCount = 0,
     required this.pricing,
     required this.features,
+    this.featuresEn,
     required this.shortDescription,
+    this.shortDescriptionEn,
     this.supportsImport = false,
     this.subscriptionUrlTemplate,
     this.isOwn = false,
   });
+
+  String taglineForLocale(String locale) =>
+      locale == 'ru' ? tagline : taglineEn ?? tagline;
+
+  List<String> featuresForLocale(String locale) =>
+      locale == 'ru' ? features : featuresEn ?? features;
+
+  String shortDescriptionForLocale(String locale) => locale == 'ru'
+      ? shortDescription
+      : shortDescriptionEn ?? shortDescription;
 }
 
 /// Static provider catalog.
@@ -70,6 +102,7 @@ class ProviderCatalog {
     id: 'honeyvpn',
     name: 'Honey VPN',
     tagline: '🍯 Вкусные цены, сладкая скорость',
+    taglineEn: '🍯 Sweet prices, sweet speeds',
     logoAsset: 'assets/images/honey_bear.jpg',
     websiteUrl: 'https://t.me/honeyvpnru_bot',
     referralUrl: 'https://t.me/honeyvpnru_bot',
@@ -82,7 +115,9 @@ class ProviderCatalog {
       hasFree: false,
       monthlyPriceUsd: 1,
       priceLabel: '90₽ / 30 дней',
+      priceLabelEn: '90 RUB / 30 days',
       trialDescription: '3 дня бесплатно 🎁',
+      trialDescriptionEn: '3 days free 🎁',
     ),
     features: [
       'Лучший VPN сервис',
@@ -91,54 +126,28 @@ class ProviderCatalog {
       'Все сервисы работают',
       'Быстрые серверы',
     ],
+    featuresEn: [
+      'The best VPN service',
+      'Hysteria2 protocol',
+      'VLESS protocol',
+      'All services work',
+      'Fast servers',
+    ],
     shortDescription:
         '🍯 Honey VPN — вкусные цены, сладкая скорость. '
         'VPN-сервис на базе современных протоколов VLESS и Hysteria2. '
         'Лучший VPN для Wi-Fi · 3 дня бесплатно 🎁 · от 3 ₽/сутки · '
         'Все сервисы включая Gemini доступны.',
+    shortDescriptionEn:
+        '🍯 Honey VPN — sweet prices, sweet speeds. '
+        'A VPN service using the modern VLESS and Hysteria2 protocols. '
+        'The best VPN for Wi-Fi · 3 days free 🎁 · from 3 RUB/day · '
+        'All services, including Gemini, are available.',
     supportsImport: true,
-    subscriptionUrlTemplate: 'https://sub.honeyvpn.ru/ext/5BQLnwsNJ5nvF6dH',
+    subscriptionUrlTemplate: 'https://sub.honeyvpn.ru/5BQLnwsNJ5nvF6dH',
     isOwn: true,
   );
 
-  static const _alphavpn = VpnProvider(
-    id: 'alphavpn',
-    name: 'AlphaVPN',
-    tagline: '⚡ AmneziaWG — обход любых блокировок',
-    logoAsset: 'assets/images/alphavpn_logo.png',
-    websiteUrl: 'https://t.me/alphaawg_bot',
-    referralUrl: 'https://t.me/alphaawg_bot',
-    rating: 5.0,
-    reviewCount: 312,
-    tier: ProviderTier.platinum,
-    categories: [ProviderCategory.privacy, ProviderCategory.streaming],
-    protocols: ['AmneziaWG'],
-    serverCount: 2,
-    countryCount: 2,
-    pricing: PricingInfo(
-      hasFree: true,
-      monthlyPriceUsd: 2,
-      priceLabel: 'от 150₽ / мес',
-      trialDescription: '3 дня бесплатно 🎁',
-      freeDescription: '3 дня бесплатного доступа',
-    ),
-    features: [
-      'AmneziaWG протокол',
-      'Обход DPI блокировок',
-      '🇫🇷 Франция',
-      '🇩🇪 Германия',
-      'Все сервисы работают',
-      'Смена серверов',
-    ],
-    shortDescription:
-        '⚡ AlphaVPN — VPN-сервис на базе AmneziaWG, '
-        'обфусцированного WireGuard. Обходит DPI и любые блокировки. '
-        'Серверы во Франции и Германии · 3 дня бесплатно 🎁 · '
-        'Мгновенная настройка через Telegram-бот.',
-    supportsImport: false,
-    isOwn: true,
-  );
-
-  static List<VpnProvider> get top3 => [_honeyvpn, _alphavpn];
-  static List<VpnProvider> get all  => [_honeyvpn, _alphavpn];
+  static List<VpnProvider> get top3 => [_honeyvpn];
+  static List<VpnProvider> get all => [_honeyvpn];
 }

@@ -1,0 +1,101 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  --background: #f5f4f1;
+  --surface: #fff;
+  --text: #242526;
+  --secondary: #686864;
+  --line: #e8e6e1;
+  --accent: #916629;
+  --button: #976a2b;
+  --button-hover: #865b23;
+  --button-text: #fff;
+  --subtle: #f4f3f0;
+  --focus: #886125;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--background); color: var(--text); }
+button { font: inherit; -webkit-tap-highlight-color: transparent; }
+button:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+.page {
+  min-height: 100svh;
+  max-width: 500px;
+  margin: 0 auto;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(28px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 24px;
+}
+.header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.wordmark { font-size: 13px; font-weight: 600; letter-spacing: -.15px; }
+.languages { display: flex; gap: 2px; padding: 3px; background: var(--line); border-radius: 10px; }
+.languages button {
+  padding: 6px 10px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+.languages button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px #0000000d; }
+.card {
+  padding: 36px 32px 28px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 14px 45px #3c352709;
+  text-align: center;
+}
+.shield { display: block; margin: 0 auto 23px; border-radius: 18px; box-shadow: 0 5px 14px #594b2612; }
+.eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 12px; font-weight: 600; }
+h1 { margin: 0; font-size: clamp(25px, 6vw, 32px); line-height: 1.15; font-weight: 650; letter-spacing: -.9px; text-wrap: balance; }
+.description { margin: 14px auto 0; color: var(--secondary); font-size: 14px; line-height: 1.55; max-width: 320px; text-wrap: pretty; }
+.ready-status { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 24px; color: var(--secondary); font-size: 12px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #649478; }
+.actions { display: grid; gap: 9px; margin-top: 17px; }
+.button { width: 100%; min-height: 48px; padding: 12px 15px; border: 0; border-radius: 12px; font-size: 13px; font-weight: 600; line-height: 1.45; cursor: pointer; }
+.primary { color: var(--button-text); background: var(--button); box-shadow: inset 0 1px 0 #ffffff28, 0 2px 5px #75521e15; }
+.primary:hover { background: var(--button-hover); }
+.secondary { color: var(--text); background: var(--subtle); }
+.secondary:hover { background: var(--line); }
+.button:active { filter: brightness(.96); }
+.button:disabled { opacity: .58; cursor: wait; }
+.feedback { min-height: 19px; margin: 12px 0 0; color: var(--accent); font-size: 12px; line-height: 1.5; }
+.help { margin: 14px 0 0; color: var(--secondary); font-size: 12px; line-height: 1.6; text-wrap: pretty; }
+footer { padding: 0 8px; color: var(--secondary); font-size: 11px; line-height: 1.5; text-align: center; }
+.clipboard-only { position: fixed; width: 1px; height: 1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); opacity: 0; pointer-events: none; }
+@media (max-width: 370px) {
+  .page { padding-left: 16px; padding-right: 16px; gap: 18px; }
+  .card { padding: 30px 22px 22px; border-radius: 21px; }
+  .wordmark { font-size: 12px; }
+}
+@media (pointer: coarse) {
+  .languages button { min-height: 44px; min-width: 44px; }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #191a1c;
+    --surface: #242528;
+    --text: #efefed;
+    --secondary: #a6a6a0;
+    --line: #38393a;
+    --accent: #c9a46d;
+    --button: #b68b51;
+    --button-hover: #c0975f;
+    --button-text: #1d1c1a;
+    --subtle: #303134;
+    --focus: #d8b580;
+  }
+  .card { box-shadow: 0 18px 50px #00000020; }
+}
+@media (forced-colors: active) {
+  .button, .languages { border: 1px solid ButtonText; }
+  .primary { background: ButtonFace; color: ButtonText; }
+  .status-dot { background: CanvasText; }
+}

@@ -13,7 +13,12 @@ android/.gradle/
 android/local.properties
 android/key.properties
 android/*.jks
+android/*.jks.*
+android/*.keystore*
 android/app/debug.keystore
+# Reviewed >100MiB CLI cores are generated and verified before Android builds.
+android/app/src/main/jniLibs/*/libsingbox.so
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 **/android/gradle-wrapper.jar
 
 # iOS
@@ -22,13 +27,13 @@ ios/Flutter/App.framework
 ios/Flutter/Flutter.framework
 ios/Flutter/Flutter.podspec
 ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+macos/Flutter/GeneratedPluginRegistrant.swift
 ios/Flutter/app.flx
 ios/Flutter/app.zip
 ios/Flutter/engine.zip
 ios/Pods/
-
-# Web
-web/index.html
 
 # Windows
 windows/flutter/generated_plugin_registrant.cc

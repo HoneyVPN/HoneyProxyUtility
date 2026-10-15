@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:io' show Platform;
@@ -9,21 +12,37 @@ import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../../app/app_theme.dart';
 import '../../../../app/flavor.dart';
+import '../../../../app/app_theme.dart';
 import '../../../../app/l10n/strings.dart';
 import '../../data/vpn_disclosure_provider.dart';
 import '../../domain/entities/connection_state.dart';
 import '../notifiers/connection_notifier.dart';
 import '../widgets/connect_button.dart';
 import '../widgets/speed_stats_bar.dart';
+import '../widgets/server_selector_chip.dart';
 import '../../../servers/data/models/server_profile_model.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import '../../../servers/presentation/widgets/server_list_tile.dart';
-import '../../../subscriptions/presentation/screens/subscriptions_screen.dart';
+import '../../../servers/presentation/widgets/country_presentation.dart';
+import '../../../servers/presentation/widgets/server_connection_label.dart';
+import '../../../servers/presentation/widgets/latency_badge.dart';
+import '../../../servers/presentation/widgets/latency_test_action.dart';
+import '../../../servers/presentation/server_selection_groups.dart';
+import '../../../subscriptions/data/services/subscription_order.dart';
+import '../../../subscriptions/presentation/widgets/subscription_refresh_action.dart';
+import '../../../subscriptions/data/services/subscriptions_notifier.dart';
+import '../../../subscriptions/data/services/subscription_policy.dart';
+import '../../../subscriptions/domain/entities/provider_geo_state.dart';
 import '../../../update/update_provider.dart';
 import '../../../settings/presentation/notifiers/settings_notifier.dart';
+import '../../../settings/presentation/widgets/settings_save_feedback.dart';
 import '../../../settings/data/models/app_settings.dart';
+import '../../../diagnostics/presentation/diagnostic_send_sheet.dart';
+
+class ToggleConnectionIntent extends Intent {
+  const ToggleConnectionIntent();
+}
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -34,7 +53,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final Set<String> _collapsed = {};
-  bool _testingAll = false;
   bool _updateDismissed = false;
 
   @override
@@ -45,176 +63,345 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final settings = ref.watch(settingsProvider).value ?? const AppSettings();
     final subsState = ref.watch(subscriptionsProvider).value;
     final subs = subsState?.subs ?? [];
+    final failedSubscriptionUrls = {
+      for (final sub in subs)
+        if (subsState?.failures.containsKey(sub.id) ?? false) sub.url,
+    };
     final s = ref.watch(stringsProvider);
+    final geoWarnings = {
+      for (final sub in subs)
+        if (sub.providerGeoStatus == ProviderGeoStatus.stale ||
+            sub.providerGeoStatus == ProviderGeoStatus.unavailable)
+          sub.url: s.providerGeoWarning(
+            sub.providerGeoIssue,
+            hasLastGood: sub.providerGeo != null,
+          ),
+    };
     final update = ref.watch(updateProvider).value;
     // Eagerly load disclosure state so .value is ready before user taps connect
     ref.watch(vpnDisclosureProvider);
 
     final subNames = <String, String>{
-      for (final sub in subs) sub.url: sub.name.isNotEmpty ? sub.name : _hostFromUrl(sub.url),
+      for (final sub in subs)
+        sub.url: sub.name.isNotEmpty ? sub.name : _hostFromUrl(sub.url),
     };
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Honey'),
-        actions: [
-          if (subsState?.subs.isNotEmpty == true)
-            IconButton(
-              icon: const Icon(Icons.subscriptions_outlined),
-              tooltip: s.subscriptionsTooltip,
-              onPressed: () => context.push('/subscriptions'),
-            ),
-          if (servers.value?.isNotEmpty == true) ...[
-            if (subsState?.subs.isNotEmpty == true)
+    final serverCount = servers.value?.length ?? 0;
+    final ru = s.locale == 'ru';
+    final compactControls =
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.windows &&
+        MediaQuery.sizeOf(context).height < 480 &&
+        MediaQuery.textScalerOf(context).scale(14) > 21;
+    return Shortcuts(
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.enter, meta: true):
+            ToggleConnectionIntent(),
+        SingleActivator(LogicalKeyboardKey.enter, control: true):
+            ToggleConnectionIntent(),
+      },
+      child: Actions(
+        actions: {
+          ToggleConnectionIntent: CallbackAction<ToggleConnectionIntent>(
+            onInvoke: (_) {
+              _handleConnectTap(ref, conn, selected);
+              return null;
+            },
+          ),
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(s.homeTitle),
+            actions: [
               IconButton(
-                icon: const Icon(Icons.sync),
-                tooltip: s.refreshSubsTooltip,
-                onPressed: () => ref.read(subscriptionsProvider.notifier).refreshAll(),
+                icon: const Icon(Icons.layers_outlined, size: 19),
+                tooltip: s.subscriptionsTooltip,
+                onPressed: () => context.push('/subscriptions'),
               ),
-            _testingAll
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: SizedBox(
-                      width: 20, height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: IconButton(
+                  icon: const Icon(Icons.add_rounded),
+                  tooltip: s.importServerTooltip,
+                  onPressed: () => context.push('/converter'),
+                ),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            top: false,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        compactControls ? 4 : 12,
+                        16,
+                        compactControls ? 4 : 12,
+                      ),
+                      child: _ConnectionControls(
+                        conn: conn,
+                        selected: selected,
+                        s: s,
+                        compact: compactControls,
+                        onConnectTap: () =>
+                            _handleConnectTap(ref, conn, selected),
+                        onServerTap: _showServerChooser,
+                      ),
                     ),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.network_ping),
-                    tooltip: s.pingAllTooltip,
-                    onPressed: _testAll,
-                  ),
-          ],
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: s.importServerTooltip,
-            onPressed: () => context.push('/converter'),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Fixed: status / connect card
-          _StatusCard(
-            conn: conn,
-            selected: selected,
-            s: s,
-            onConnectTap: () => _handleConnectTap(ref, conn, selected),
-            connectionMode: settings.connectionMode,
-            onModeChanged: ref.read(settingsProvider.notifier).setConnectionMode,
-          ),
-
-          // Fixed: speed stats when connected
-          if (conn.isConnected)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: SpeedStatsBar(stats: conn.stats),
-            ),
-
-          // Fixed: error banner
-          if (conn.status == ConnectionStatus.error && conn.errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _ErrorBanner(message: conn.errorMessage!),
-            ),
-
-                    // Fixed: update banner
-          if (!_updateDismissed && update != null && update.hasUpdate)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _UpdateBanner(
-                info: update,
-                onDismiss: () => setState(() => _updateDismissed = true),
+                    if (!kIsWeb &&
+                        defaultTargetPlatform == TargetPlatform.windows)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                        child: Center(
+                          child: _ConnectionModeControl(
+                            conn: conn,
+                            s: s,
+                            connectionMode: settings.connectionMode,
+                            onModeChanged: (mode) => saveSettingsWithFeedback(
+                              context,
+                              () => ref
+                                  .read(settingsProvider.notifier)
+                                  .setConnectionMode(mode),
+                              s.settingsSaveFailed,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (conn.isConnected)
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          0,
+                          16,
+                          compactControls ? 4 : 8,
+                        ),
+                        child: SpeedStatsBar(stats: conn.stats),
+                      ),
+                    Expanded(
+                      child: CustomScrollView(
+                        slivers: [
+                          if (conn.status == ConnectionStatus.error &&
+                              conn.errorMessage != null)
+                            SliverPadding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                              sliver: SliverToBoxAdapter(
+                                child: _ErrorBanner(
+                                  message: conn.errorMessage!,
+                                ),
+                              ),
+                            ),
+                          if (!_updateDismissed &&
+                              update != null &&
+                              update.hasUpdate)
+                            SliverPadding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                              sliver: SliverToBoxAdapter(
+                                child: _UpdateBanner(
+                                  info: update,
+                                  onDismiss: () =>
+                                      setState(() => _updateDismissed = true),
+                                ),
+                              ),
+                            ),
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(24, 12, 16, 2),
+                            sliver: SliverToBoxAdapter(
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      s.serversTitle,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  if (serverCount > 0)
+                                    const LatencyTestAction(),
+                                  if (subs.isNotEmpty)
+                                    const SubscriptionRefreshAction(),
+                                ],
+                              ),
+                            ),
+                          ),
+                          servers.when(
+                            loading: () => const SliverToBoxAdapter(
+                              child: Padding(
+                                padding: EdgeInsets.all(40),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                            ),
+                            error: (e, _) => SliverPadding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              sliver: SliverToBoxAdapter(
+                                child: _ErrorBanner(
+                                  message: s.serversLoadFailed,
+                                ),
+                              ),
+                            ),
+                            data: (all) {
+                              final list = all;
+                              if (list.isEmpty) {
+                                return SliverToBoxAdapter(
+                                  child: _EmptyState(
+                                    s: s,
+                                    onAdd: () => context.push('/converter'),
+                                  ),
+                                );
+                              }
+                              final groups =
+                                  <String, List<ServerProfileModel>>{};
+                              for (final sv in list) {
+                                (groups[sv.subscriptionId] ??= []).add(sv);
+                              }
+                              final keys = orderedSubscriptionGroups(
+                                groups.keys,
+                                subs,
+                              );
+                              final items = <Widget>[];
+                              for (final key in keys) {
+                                final group = groups[key]!;
+                                final isCollapsed = _collapsed.contains(key);
+                                final label = key.isEmpty
+                                    ? s.manualGroup
+                                    : (subNames[key] ?? _hostFromUrl(key));
+                                items.add(
+                                  Material(
+                                    color: Colors.transparent,
+                                    clipBehavior: Clip.antiAlias,
+                                    child: _GroupHeader(
+                                      label: label,
+                                      hasRefreshFailure: failedSubscriptionUrls
+                                          .contains(key),
+                                      geoWarning: geoWarnings[key],
+                                      count: group.length,
+                                      isManual: key.isEmpty,
+                                      isCollapsed: isCollapsed,
+                                      onToggle: () => setState(() {
+                                        if (isCollapsed) {
+                                          _collapsed.remove(key);
+                                        } else {
+                                          _collapsed.add(key);
+                                        }
+                                      }),
+                                      onDeleteGroup: () => _confirmDeleteGroup(
+                                        context,
+                                        ref,
+                                        label,
+                                        group,
+                                        key,
+                                        s,
+                                      ),
+                                      deleteTooltip: s.deleteGroupTitle(label),
+                                    ),
+                                  ),
+                                );
+                                if (!isCollapsed) {
+                                  for (final sv in group) {
+                                    items.add(
+                                      Material(
+                                        color: Colors.transparent,
+                                        child: ServerListTile(
+                                          key: ValueKey(sv.id),
+                                          server: sv,
+                                          isSelected: sv.id == selected?.id,
+                                          onTap: () => _selectServer(sv),
+                                          onDelete: () => _confirmDelete(
+                                            context,
+                                            ref,
+                                            sv,
+                                            s,
+                                          ),
+                                          onTapDetail: () =>
+                                              context.push('/servers/${sv.id}'),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                                if (key.contains('sub.honeyvpn.ru') &&
+                                    subs.length == 1 &&
+                                    !group.any((sv) => sv.protocol == 'hy2')) {
+                                  items.add(
+                                    _HysteriaBanner(
+                                      onTap: () =>
+                                          context.push('/marketplace/honeyvpn'),
+                                      ru: ru,
+                                    ),
+                                  );
+                                }
+                                items.add(const SizedBox(height: 8));
+                              }
+                              return SliverPadding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                sliver: SliverList.builder(
+                                  itemCount: items.length,
+                                  itemBuilder: (_, i) => items[i],
+                                ),
+                              );
+                            },
+                          ),
+                          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-
-          // Scrollable: server list
-          Expanded(
-            child: servers.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
-              data: (list) {
-                if (list.isEmpty) {
-                  return _EmptyState(s: s, onAdd: () => context.push('/converter'));
-                }
-
-                final groups = <String, List<ServerProfileModel>>{};
-                for (final sv in list) {
-                  (groups[sv.subscriptionId] ??= []).add(sv);
-                }
-
-                final keys = groups.keys.toList()
-                  ..sort((a, b) {
-                    if (a.isEmpty) return -1;
-                    if (b.isEmpty) return 1;
-                    return a.compareTo(b);
-                  });
-
-                final items = <Widget>[];
-                for (int gi = 0; gi < keys.length; gi++) {
-                  final key = keys[gi];
-                  final group = groups[key]!;
-                  final isCollapsed = _collapsed.contains(key);
-                  final label = key.isEmpty ? s.manualGroup : (subNames[key] ?? _hostFromUrl(key));
-
-                  items.add(_GroupHeader(
-                    label: label,
-                    count: group.length,
-                    isManual: key.isEmpty,
-                    isCollapsed: isCollapsed,
-                    onToggle: () => setState(() {
-                      if (isCollapsed) _collapsed.remove(key); else _collapsed.add(key);
-                    }),
-                    onDeleteGroup: () => _confirmDeleteGroup(context, ref, label, group, key, s),
-                  ));
-
-                  if (!isCollapsed) {
-                    for (final sv in group) {
-                      items.add(ServerListTile(
-                        server: sv,
-                        isSelected: sv.id == selected?.id,
-                        onTap: () {
-                          ref.read(serversNotifierProvider.notifier).selectServer(sv);
-                          if (conn.isConnected) {
-                            ref.read(connectionNotifierProvider.notifier).connect(sv);
-                          }
-                        },
-                        onDelete: () => _confirmDelete(context, ref, sv, s),
-                        onTapDetail: () => context.push('/servers/${sv.id}'),
-                      ));
-                    }
-                  }
-
-                  // Hysteria promo under built-in subscription
-                  if (key.contains('sub.honeyvpn.ru') && subs.length == 1
-                      && !group.any((sv) => sv.protocol == 'hy2')) {
-                    items.add(_HysteriaBanner(
-                      onTap: () => context.push('/marketplace/honeyvpn'),
-                    ));
-                  }
-
-                  if (gi < keys.length - 1) {
-                    items.add(Divider(
-                      height: 1,
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ));
-                  }
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 80),
-                  itemCount: items.length,
-                  itemBuilder: (_, i) => items[i],
-                );
-              },
-            ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  void _handleConnectTap(WidgetRef ref, NexConnectionState conn, ServerProfileModel? server) {
+  Future<void> _showServerChooser() async {
+    final server = await showDialog<ServerProfileModel>(
+      context: context,
+      builder: (_) => const _ServerChooser(),
+    );
+    if (!mounted || server == null) return;
+    await _selectServer(server);
+  }
+
+  Future<void> _selectServer(ServerProfileModel server) async {
+    if (ref.read(connectionNotifierProvider).isBusy) return;
+    final selected = await ref
+        .read(serversNotifierProvider.notifier)
+        .selectServerIfCurrent(server);
+    if (!mounted) return;
+    if (!selected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ref.read(stringsProvider).favoriteServerChanged),
+        ),
+      );
+      return;
+    }
+    final current = ref.read(selectedServerProvider);
+    if (current == null || !current.hasSameConnectionIdentity(server)) return;
+    final conn = ref.read(connectionNotifierProvider);
+    if (conn.isConnected && conn.activeServer?.id != current.id) {
+      await ref.read(connectionNotifierProvider.notifier).connect(current);
+    }
+  }
+
+  void _handleConnectTap(
+    WidgetRef ref,
+    NexConnectionState conn,
+    ServerProfileModel? server,
+  ) {
     if (conn.isBusy) return;
     if (conn.isConnected) {
       ref.read(connectionNotifierProvider.notifier).disconnect();
@@ -230,7 +417,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  Future<void> _showVpnDisclosure(WidgetRef ref, ServerProfileModel server) async {
+  Future<void> _showVpnDisclosure(
+    WidgetRef ref,
+    ServerProfileModel server,
+  ) async {
     final s = ref.read(stringsProvider);
     final accepted = await showDialog<bool>(
       context: context,
@@ -241,7 +431,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           children: [
             const Icon(Icons.vpn_lock_outlined, size: 22),
             const SizedBox(width: 10),
-            Text(s.vpnDisclosureTitle),
+            Expanded(child: Text(s.vpnDisclosureTitle)),
           ],
         ),
         content: Column(
@@ -285,41 +475,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  Future<void> _testAll() async {
-    setState(() => _testingAll = true);
-    await ref.read(serversNotifierProvider.notifier).testAllLatency();
-    if (mounted) setState(() => _testingAll = false);
-  }
-
-  void _confirmDeleteGroup(BuildContext ctx, WidgetRef ref, String label,
-      List<ServerProfileModel> group, String subscriptionId, S s) {
+  void _confirmDeleteGroup(
+    BuildContext ctx,
+    WidgetRef ref,
+    String label,
+    List<ServerProfileModel> group,
+    String subscriptionId,
+    S s,
+  ) {
     showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
         title: Text(s.deleteGroupTitle(label)),
-        content: Text(s.deleteGroupContent(group.length, subscriptionId.isNotEmpty)),
+        content: Text(
+          s.deleteGroupContent(group.length, subscriptionId.isNotEmpty),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: Text(s.cancelButton)),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(s.cancelButton),
+          ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: NexColors.error),
-            onPressed: () {
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+              foregroundColor: Theme.of(c).colorScheme.onError,
+            ),
+            onPressed: () async {
               Navigator.pop(c);
               final conn = ref.read(connectionNotifierProvider);
-              if (conn.activeServer != null &&
-                  group.any((sv) => sv.id == conn.activeServer!.id) &&
-                  (conn.isConnected || conn.isBusy)) {
-                ref.read(connectionNotifierProvider.notifier).disconnect();
-              }
+              final active = conn.activeServer;
+              final affectsActive =
+                  active != null &&
+                  (group.any((sv) => sv.id == active.id) ||
+                      (subscriptionId.isNotEmpty &&
+                          active.subscriptionId == subscriptionId));
+              if (!await _stopBeforeDelete(affectsActive, s)) return;
               if (subscriptionId.isNotEmpty) {
                 final subs = ref.read(subscriptionsProvider).value?.subs ?? [];
-                final sub = subs.where((sub) => sub.url == subscriptionId).firstOrNull;
+                final sub = subs
+                    .where((sub) => sub.url == subscriptionId)
+                    .firstOrNull;
                 if (sub != null) {
-                  ref.read(subscriptionsProvider.notifier).delete(sub.id);
+                  await ref.read(subscriptionsProvider.notifier).delete(sub.id);
                   return;
                 }
               }
               for (final sv in group) {
-                ref.read(serversNotifierProvider.notifier).delete(sv.id);
+                await ref
+                    .read(serversNotifierProvider.notifier)
+                    .delete(sv.id, expectedSubscriptionId: subscriptionId);
               }
             },
             child: Text(s.deleteButton),
@@ -329,29 +533,74 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  void _confirmDelete(BuildContext ctx, WidgetRef ref, ServerProfileModel sv, S s) {
+  void _confirmDelete(
+    BuildContext ctx,
+    WidgetRef ref,
+    ServerProfileModel sv,
+    S s,
+  ) {
     showDialog<bool>(
       context: ctx,
       builder: (c) => AlertDialog(
         title: Text(s.deleteServerTitle),
-        content: Text(s.deleteServerContent(sv.name.isNotEmpty ? sv.name : sv.host)),
+        content: Text(
+          s.deleteServerContent(sv.name.isNotEmpty ? sv.name : sv.host),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: Text(s.cancelButton)),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(s.cancelButton),
+          ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: NexColors.error),
-            onPressed: () {
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+              foregroundColor: Theme.of(c).colorScheme.onError,
+            ),
+            onPressed: () async {
               Navigator.pop(c);
               final conn = ref.read(connectionNotifierProvider);
-              if (conn.activeServer?.id == sv.id && (conn.isConnected || conn.isBusy)) {
-                ref.read(connectionNotifierProvider.notifier).disconnect();
-              }
-              ref.read(serversNotifierProvider.notifier).delete(sv.id);
+              final active = conn.activeServer;
+              final deletingFreeSlot =
+                  normalizeSubscriptionUrl(sv.subscriptionId) ==
+                  builtInSubscriptionUrl;
+              final affectsActive =
+                  active != null &&
+                  (active.id == sv.id ||
+                      (deletingFreeSlot &&
+                          normalizeSubscriptionUrl(active.subscriptionId) ==
+                              builtInSubscriptionUrl));
+              if (!await _stopBeforeDelete(affectsActive, s)) return;
+              await ref
+                  .read(serversNotifierProvider.notifier)
+                  .delete(sv.id, expectedSubscriptionId: sv.subscriptionId);
             },
             child: Text(s.deleteButton),
           ),
         ],
       ),
     );
+  }
+
+  Future<bool> _stopBeforeDelete(bool affectsActive, S strings) async {
+    if (!affectsActive) return mounted;
+    try {
+      await ref.read(connectionNotifierProvider.notifier).disconnect();
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.vpnStopFailed)));
+      return false;
+    }
+    if (!mounted) return false;
+    if (ref.read(connectionNotifierProvider).status !=
+        ConnectionStatus.disconnected) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.vpnStopFailed)));
+      return false;
+    }
+    return true;
   }
 
   static String _hostFromUrl(String url) {
@@ -364,187 +613,300 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-// ── Status / Connect card ─────────────────────────────────────────────────────
-
-class _StatusCard extends StatelessWidget {
+// Connection controls stay outside the scrolling server content so their
+// target never moves when connection feedback or server lists change.
+class _ConnectionControls extends StatelessWidget {
   final NexConnectionState conn;
   final ServerProfileModel? selected;
   final S s;
+  final bool compact;
   final VoidCallback onConnectTap;
-  final ConnectionMode connectionMode;
-  final ValueChanged<ConnectionMode> onModeChanged;
+  final VoidCallback onServerTap;
 
-  const _StatusCard({
+  const _ConnectionControls({
     required this.conn,
     required this.selected,
     required this.s,
+    this.compact = false,
     required this.onConnectTap,
+    required this.onServerTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final window = MediaQuery.sizeOf(context);
+    final desktop = switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+    // A full-height desktop panel gives the primary action room to breathe.
+    // Short or narrow windows retain the compact target and scrollable content.
+    final generous = desktop && window.width >= 400 && window.height >= 640;
+    final nativeSession =
+        conn.usesNativeSessionIdentity &&
+        conn.status != ConnectionStatus.disconnected;
+    final current = nativeSession
+        ? conn.activeServer
+        : conn.isConnected || conn.isBusy
+        ? conn.activeServer ?? selected
+        : selected;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (generous) const SizedBox(height: 24),
+        ConnectButton(
+          status: conn.status,
+          // Enlarged text adds 24px inside ConnectButton: the tight Windows
+          // target remains 144px while leaving a usable server viewport.
+          diameter: generous
+              ? 224
+              : compact
+              ? 120
+              : 160,
+          enabled:
+              selected != null || conn.activeServer != null || conn.isConnected,
+          onTap: onConnectTap,
+        ),
+        SizedBox(
+          height: generous
+              ? 16
+              : compact
+              ? 4
+              : 10,
+        ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: ServerSelectorChip(
+            server: current,
+            labelOverride: nativeSession && current == null
+                ? s.activeServerUnknown
+                : null,
+            onTap: onServerTap,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Windows mode stays below the fixed primary action and above live metrics.
+class _ConnectionModeControl extends StatelessWidget {
+  final NexConnectionState conn;
+  final S s;
+  final ConnectionMode connectionMode;
+  final ValueChanged<ConnectionMode> onModeChanged;
+
+  const _ConnectionModeControl({
+    required this.conn,
+    required this.s,
     required this.connectionMode,
     required this.onModeChanged,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final statusColor = switch (conn.status) {
-      ConnectionStatus.connected => NexColors.connected,
-      ConnectionStatus.connecting || ConnectionStatus.preparing => NexColors.connecting,
-      ConnectionStatus.error => NexColors.error,
-      _ => NexColors.disconnected,
-    };
-    final statusLabel = switch (conn.status) {
-      ConnectionStatus.connected     => s.statusConnected,
-      ConnectionStatus.connecting    => s.statusConnecting,
-      ConnectionStatus.preparing     => s.statusPreparing,
-      ConnectionStatus.disconnecting => s.statusDisconnecting,
-      ConnectionStatus.error         => s.statusError,
-      _                              => s.statusDisconnected,
-    };
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: statusColor.withOpacity(conn.isConnected ? 0.4 : 0.15),
-          width: 1,
+  Widget build(BuildContext context) => SegmentedButton<ConnectionMode>(
+    showSelectedIcon: false,
+    segments: [
+      ButtonSegment(
+        value: ConnectionMode.tunnel,
+        icon: const Icon(Icons.vpn_lock_outlined, size: 18),
+        label: Text(
+          s.connectionModeShortLabel('tunnel'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: statusColor.withOpacity(conn.isConnected ? 0.07 : 0.02),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        tooltip: s.connectionModeShortLabel('tunnel'),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 500),
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: statusColor.withOpacity(0.10),
-              border: Border.all(color: statusColor.withOpacity(0.45), width: 1.5),
-              boxShadow: conn.isConnected ? [
-                BoxShadow(
-                  color: statusColor.withOpacity(0.25),
-                  blurRadius: 14,
-                  spreadRadius: 2,
-                ),
-              ] : null,
-            ),
-            child: Icon(
-              conn.isConnected ? Icons.shield : Icons.shield_outlined,
-              color: statusColor,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  statusLabel,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                    color: statusColor,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  selected != null
-                      ? (selected!.name.isNotEmpty ? selected!.name : selected!.host)
-                      : s.noServerSelected,
-                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          ConnectButton(status: conn.status, onTap: onConnectTap),
-        ],
-          ),
-          if (Platform.isWindows) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _ModeButton(
-                    label: 'TUN',
-                    icon: Icons.vpn_lock_outlined,
-                    selected: connectionMode == ConnectionMode.tunnel,
-                    onTap: () => onModeChanged(ConnectionMode.tunnel),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _ModeButton(
-                    label: 'Proxy',
-                    icon: Icons.device_hub_outlined,
-                    selected: connectionMode == ConnectionMode.proxy,
-                    onTap: () => onModeChanged(ConnectionMode.proxy),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
+      ButtonSegment(
+        value: ConnectionMode.proxy,
+        icon: const Icon(Icons.device_hub_outlined, size: 18),
+        label: Text(
+          s.connectionModeShortLabel('proxy'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        tooltip: s.connectionModeShortLabel('proxy'),
       ),
-    );
-  }
+    ],
+    selected: {connectionMode},
+    onSelectionChanged: conn.isBusy || conn.isConnected
+        ? null
+        : (selection) => onModeChanged(selection.first),
+  );
 }
 
-// ── Mode button ──────────────────────────────────────────────────────────────
-
-class _ModeButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-  const _ModeButton({required this.label, required this.icon, required this.selected, required this.onTap});
+class _ServerChooser extends ConsumerWidget {
+  const _ServerChooser();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
     final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? NexPalette.accent.withOpacity(0.12) : cs.surfaceContainerHighest.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? NexPalette.accent.withOpacity(0.5) : cs.outlineVariant.withOpacity(0.4),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+    final servers = ref.watch(serversNotifierProvider);
+    final selected = ref.watch(selectedServerProvider);
+    final conn = ref.watch(connectionNotifierProvider);
+    final subs = ref.watch(subscriptionsProvider).value?.subs ?? [];
+    final subNames = <String, String>{
+      for (final sub in subs)
+        sub.url: sub.name.isNotEmpty
+            ? sub.name
+            : _HomeScreenState._hostFromUrl(sub.url),
+    };
+    return Dialog(
+      key: const ValueKey('all-servers-chooser'),
+      insetPadding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: SizedBox(
+        height: (MediaQuery.sizeOf(context).height * 0.75).clamp(240.0, 520.0),
+        child: Column(
           children: [
-            Icon(icon, size: 14, color: selected ? NexPalette.accent : cs.onSurfaceVariant),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected ? NexPalette.accent : cs.onSurfaceVariant,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 6, 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      s.chooseServer,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  if (servers.value?.isNotEmpty == true)
+                    const LatencyTestAction(),
+                  IconButton(
+                    tooltip: s.closeButton,
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
               ),
             ),
+            if (conn.isBusy)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(
+                  s.serverSelectionLocked,
+                  style: TextStyle(color: cs.onSurfaceVariant),
+                ),
+              ),
+            Expanded(
+              child: servers.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(s.serversLoadFailed),
+                  ),
+                ),
+                data: (all) {
+                  if (all.isEmpty) {
+                    return Center(child: Text(s.noServersYet));
+                  }
+                  final groups = serverSelectionGroups(all, subs);
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                    children: [
+                      for (final group in groups) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                          child: Text(
+                            group.subscriptionId == null
+                                ? s.favoritesTitle
+                                : group.subscriptionId!.isEmpty
+                                ? s.manualGroup
+                                : subNames[group.subscriptionId] ??
+                                      _HomeScreenState._hostFromUrl(
+                                        group.subscriptionId!,
+                                      ),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        for (final server in group.servers)
+                          ListTile(
+                            key: ValueKey('choose-server-${server.id}'),
+                            enabled: !conn.isBusy,
+                            selected: selected?.id == server.id,
+                            selectedTileColor: cs.primary.withValues(
+                              alpha: 0.065,
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 2,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(7),
+                            ),
+                            leading: CountryFlagIcon(
+                              presentation: CountryPresentation.fromName(
+                                server.name,
+                                fallbackName: server.host,
+                              ),
+                            ),
+                            minLeadingWidth: 20,
+                            horizontalTitleGap: 10,
+                            title: Text(
+                              CountryPresentation.fromName(
+                                server.name,
+                                fallbackName: server.host,
+                              ).displayName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              group.subscriptionId == null
+                                  ? '${server.subscriptionId.isEmpty ? s.manualGroup : subNames[server.subscriptionId] ?? _HomeScreenState._hostFromUrl(server.subscriptionId)} · ${ServerConnectionLabel.fromProfile(server)}'
+                                  : ServerConnectionLabel.fromProfile(server),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (ref
+                                    .watch(latencyTestProgressProvider)
+                                    .activeIds
+                                    .contains(server.id))
+                                  const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.5,
+                                    ),
+                                  )
+                                else if (server.latencyMs != null)
+                                  LatencyBadge(ms: server.latencyMs!),
+                              ],
+                            ),
+                            onTap: () => Navigator.pop(context, server),
+                          ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+            if (servers.value?.isEmpty == true)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: TextButton.icon(
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text(s.importServerButton),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    context.push('/converter');
+                  },
+                ),
+              ),
           ],
         ),
       ),
@@ -554,78 +916,117 @@ class _ModeButton extends StatelessWidget {
 
 // ── Group header ───────────────────────────────────────────────────────────────
 
-class _GroupHeader extends StatelessWidget {
+class _GroupHeader extends ConsumerWidget {
   final String label;
+  final bool hasRefreshFailure;
+  final String? geoWarning;
   final int count;
   final bool isManual;
   final bool isCollapsed;
   final VoidCallback onToggle;
   final VoidCallback onDeleteGroup;
+  final String deleteTooltip;
 
   const _GroupHeader({
     required this.label,
+    required this.hasRefreshFailure,
+    this.geoWarning,
     required this.count,
     required this.isManual,
     required this.isCollapsed,
     required this.onToggle,
     required this.onDeleteGroup,
+    required this.deleteTooltip,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onToggle,
-      child: Padding(
-        padding: const EdgeInsets.only(left: 16, right: 4, top: 8, bottom: 8),
-        child: Row(
-          children: [
-            Container(
-              width: 7, height: 7,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isManual ? cs.outline : NexPalette.accent,
+    final s = ref.watch(stringsProvider);
+    final ru = s.locale == 'ru';
+    return Row(
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: onToggle,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                10,
+                MediaQuery.sizeOf(context).width >= 700 ? 7 : 10,
+                4,
+                MediaQuery.sizeOf(context).width >= 700 ? 7 : 10,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (hasRefreshFailure || geoWarning != null) ...[
+                          const SizedBox(width: 6),
+                          Tooltip(
+                            message: hasRefreshFailure
+                                ? s.subscriptionRefreshFailureTooltip
+                                : geoWarning!,
+                            child: Icon(
+                              Icons.warning_rounded,
+                              size: 14,
+                              color: NexColors.warningFor(cs.brightness),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$count',
+                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    isCollapsed
+                        ? Icons.expand_more_rounded
+                        : Icons.expand_less_rounded,
+                    size: 16,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ],
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                  letterSpacing: 0.3,
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainer,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant, fontWeight: FontWeight.w500),
-              ),
-            ),
-            Icon(
-              isCollapsed ? Icons.expand_more : Icons.expand_less,
-              size: 18,
-              color: cs.onSurfaceVariant,
-            ),
-            InkWell(
-              onTap: onDeleteGroup,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(Icons.delete_sweep_outlined, size: 17, color: cs.error.withOpacity(0.55)),
-              ),
+          ),
+        ),
+        PopupMenuButton<bool>(
+          tooltip: isManual
+              ? (ru ? 'Действия с группой' : 'Group actions')
+              : (ru ? 'Действия с подпиской' : 'Subscription actions'),
+          icon: Icon(
+            Icons.more_horiz_rounded,
+            size: 16,
+            color: cs.onSurfaceVariant,
+          ),
+          onSelected: (_) => onDeleteGroup(),
+          itemBuilder: (_) => [
+            PopupMenuItem(
+              height: MediaQuery.sizeOf(context).width >= 700 ? 34 : 44,
+              value: true,
+              child: Text(s.deleteButton, style: TextStyle(color: cs.error)),
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 }
@@ -639,20 +1040,16 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Center(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.shield_outlined, size: 56, color: cs.outline),
-          const SizedBox(height: 16),
-          Text(s.noServersYet, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
           Text(
-            s.noServersSubtitle,
-            style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
+            s.noServersYet,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
           FilledButton.icon(
             onPressed: onAdd,
             icon: const Icon(Icons.add, size: 18),
@@ -666,40 +1063,62 @@ class _EmptyState extends StatelessWidget {
 
 // ── Error banner ──────────────────────────────────────────────────────────────
 
-class _ErrorBanner extends StatelessWidget {
+class _ErrorBanner extends ConsumerWidget {
   final String message;
   const _ErrorBanner({required this.message});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: NexColors.error.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: NexColors.error.withOpacity(0.25)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline, color: NexColors.error, size: 18),
-          const SizedBox(width: 8),
-          Expanded(child: Text(message, style: const TextStyle(color: NexColors.error, fontSize: 13))),
-        ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final ru = ref.watch(stringsProvider).locale == 'ru';
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: cs.errorContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.error_outline_rounded,
+              color: cs.onErrorContainer,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: cs.onErrorContainer,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+            ),
+            IconButton(
+              onPressed: () => showDiagnosticSendSheet(context),
+              tooltip: ru ? 'Отправить диагностику' : 'Send diagnostics',
+              icon: const Icon(Icons.upload_outlined, size: 20),
+              color: cs.onErrorContainer,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _UpdateBanner extends StatefulWidget {
+class _UpdateBanner extends ConsumerStatefulWidget {
   final UpdateInfo info;
   final VoidCallback onDismiss;
   const _UpdateBanner({required this.info, required this.onDismiss});
 
   @override
-  State<_UpdateBanner> createState() => _UpdateBannerState();
+  ConsumerState<_UpdateBanner> createState() => _UpdateBannerState();
 }
 
-class _UpdateBannerState extends State<_UpdateBanner> {
+class _UpdateBannerState extends ConsumerState<_UpdateBanner> {
   double? _progress;
 
   Future<void> _install() async {
@@ -709,7 +1128,7 @@ class _UpdateBannerState extends State<_UpdateBanner> {
     }
     final url = widget.info.downloadUrl;
     if (url.isEmpty) return;
-    if (!Platform.isAndroid) {
+    if (kIsWeb || !Platform.isAndroid) {
       await launchUrl(Uri.parse(url));
       return;
     }
@@ -749,126 +1168,102 @@ class _UpdateBannerState extends State<_UpdateBanner> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final ru = ref.watch(stringsProvider).locale == 'ru';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
       decoration: BoxDecoration(
-        color: NexPalette.accent.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: NexPalette.accent.withOpacity(0.30)),
+        color: cs.primaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              const Icon(Icons.system_update_outlined, color: NexPalette.accent, size: 20),
+              Icon(Icons.system_update_outlined, color: cs.primary, size: 20),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Доступна версия ${widget.info.remoteVersion}',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: NexPalette.accent),
+                      ru
+                          ? 'Доступна версия ${widget.info.remoteVersion}'
+                          : 'Version ${widget.info.remoteVersion} available',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      'Установлена ${widget.info.currentVersion}',
-                      style: TextStyle(fontSize: 11, color: NexPalette.accent.withOpacity(0.7)),
+                      ru
+                          ? 'Установлена ${widget.info.currentVersion}'
+                          : 'Installed ${widget.info.currentVersion}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
               ),
-              TextButton(
-                onPressed: _progress != null ? null : _install,
-                style: TextButton.styleFrom(
-                  foregroundColor: NexPalette.accent,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              IconButton(
+                onPressed: widget.onDismiss,
+                tooltip: ru ? 'Закрыть' : 'Dismiss',
+                icon: Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: cs.onSurfaceVariant,
                 ),
-                child: Text(
-                  _progress != null ? '${(_progress! * 100).toInt()}%' : 'Обновить',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: widget.onDismiss,
-                child: Icon(Icons.close, size: 16, color: NexPalette.accent.withOpacity(0.6)),
               ),
             ],
           ),
-          if (_progress != null) ...[
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: _progress,
-                backgroundColor: NexPalette.accent.withOpacity(0.15),
-                color: NexPalette.accent,
-                minHeight: 3,
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _progress != null ? null : _install,
+              icon: const Icon(Icons.download_rounded, size: 17),
+              label: Text(
+                _progress != null
+                    ? '${(_progress! * 100).toInt()}%'
+                    : (ru ? 'Обновить приложение' : 'Update app'),
               ),
             ),
-          ],
+          ),
+          if (_progress != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 10, bottom: 4),
+              child: LinearProgressIndicator(value: _progress, minHeight: 3),
+            ),
         ],
       ),
     );
   }
 }
 
-// ── Hysteria promo banner ─────────────────────────────────────────────────────
-
+// A quiet entry to the existing plans screen, without a promotional card.
 class _HysteriaBanner extends StatelessWidget {
   final VoidCallback onTap;
-  const _HysteriaBanner({required this.onTap});
+  final bool ru;
+  const _HysteriaBanner({required this.onTap, required this.ru});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              NexPalette.accent.withOpacity(0.14),
-              NexColors.connecting.withOpacity(0.08),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: NexPalette.accent.withOpacity(0.35)),
-        ),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        onPressed: onTap,
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: NexPalette.accent.withOpacity(0.15),
-              ),
-              child: const Icon(Icons.bolt_rounded, color: NexPalette.accent, size: 20),
+            Text(
+              ru ? 'Тарифы HoneyVPN' : 'HoneyVPN plans',
+              style: const TextStyle(fontSize: 12),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Hysteria 2 — быстрее в разы',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: NexPalette.accent),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Подключите скоростные серверы',
-                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.arrow_forward_ios_rounded, size: 13, color: NexPalette.accentDark),
+            const SizedBox(width: 6),
+            const Icon(Icons.arrow_forward_rounded, size: 14),
           ],
         ),
       ),

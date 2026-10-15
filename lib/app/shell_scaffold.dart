@@ -1,104 +1,329 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-class ShellScaffold extends StatefulWidget {
-  final Widget child;
-  const ShellScaffold({super.key, required this.child});
+import 'l10n/strings.dart';
+import 'honey_mark.dart';
 
-  @override
-  State<ShellScaffold> createState() => _ShellScaffoldState();
+class NavigateSectionIntent extends Intent {
+  final int index;
+  const NavigateSectionIntent(this.index);
 }
 
-class _ShellScaffoldState extends State<ShellScaffold> {
-  int _prevIndex = 0;
-  bool _forward = true;
+class ToggleSidebarIntent extends Intent {
+  const ToggleSidebarIntent();
+}
 
-  static int _computeIndex(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
-    if (location.startsWith('/converter')) return 1;
-    if (location.startsWith('/marketplace')) return 2;
-    if (location.startsWith('/settings')) return 3;
+class ShellScaffold extends ConsumerStatefulWidget {
+  final Widget child;
+  const ShellScaffold({super.key, required this.child});
+  @override
+  ConsumerState<ShellScaffold> createState() => _ShellScaffoldState();
+}
+
+class _ShellScaffoldState extends ConsumerState<ShellScaffold> {
+  var _expanded = true;
+  static int _index(BuildContext context) {
+    final path = GoRouterState.of(context).uri.path;
+    if (path.startsWith('/converter')) return 1;
+    if (path.startsWith('/marketplace')) return 2;
+    if (path.startsWith('/settings')) return 3;
     return 0;
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final newIndex = _computeIndex(context);
-    if (newIndex != _prevIndex) {
-      _forward = newIndex > _prevIndex;
-      _prevIndex = newIndex;
-    }
-  }
+  void _navigate(int index) =>
+      context.go(['/', '/converter', '/marketplace', '/settings'][index]);
 
   @override
   Widget build(BuildContext context) {
-    final index = _computeIndex(context);
-
-    return Scaffold(
-      body: ClipRect(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 240),
-          transitionBuilder: (child, animation) {
-            final isNew = child.key == ValueKey(index);
-            final begin = isNew
-                ? Offset(_forward ? 1.0 : -1.0, 0.0)
-                : Offset(_forward ? -1.0 : 1.0, 0.0);
-            return SlideTransition(
-              position: Tween<Offset>(begin: begin, end: Offset.zero)
-                  .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-              child: child,
-            );
-          },
-          layoutBuilder: (currentChild, previousChildren) => Stack(
-            children: [
-              ...previousChildren,
-              if (currentChild != null) currentChild,
-            ],
+    final index = _index(context);
+    final s = ref.watch(stringsProvider);
+    final cs = Theme.of(context).colorScheme;
+    final labels = [
+      s.homeTitle,
+      s.importScreenTitle,
+      s.marketTitle,
+      s.settingsTitle,
+    ];
+    const icons = [
+      Icons.shield_outlined,
+      CupertinoIcons.tray_arrow_down,
+      Icons.storefront_outlined,
+      Icons.tune_outlined,
+    ];
+    const selectedIcons = [
+      Icons.shield_rounded,
+      CupertinoIcons.tray_arrow_down_fill,
+      Icons.storefront_rounded,
+      Icons.tune_rounded,
+    ];
+    final apple =
+        Theme.of(context).platform == TargetPlatform.macOS ||
+        Theme.of(context).platform == TargetPlatform.iOS;
+    final textScale = MediaQuery.textScalerOf(context).scale(12) / 12;
+    final bindings = <ShortcutActivator, Intent>{
+      for (final modifier in [false, true]) ...{
+        for (var i = 0; i < 4; i++)
+          SingleActivator(
+            [
+              LogicalKeyboardKey.digit1,
+              LogicalKeyboardKey.digit2,
+              LogicalKeyboardKey.digit3,
+              LogicalKeyboardKey.digit4,
+            ][i],
+            meta: modifier,
+            control: !modifier,
+          ): NavigateSectionIntent(
+            i,
           ),
-          child: KeyedSubtree(key: ValueKey(index), child: widget.child),
+        SingleActivator(
+          LogicalKeyboardKey.keyN,
+          meta: modifier,
+          control: !modifier,
+        ): const NavigateSectionIntent(
+          1,
         ),
-      ),
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
-          child: NavigationBar(
-            selectedIndex: index,
-            height: 64,
-            onDestinationSelected: (i) {
-              switch (i) {
-                case 0: context.go('/'); break;
-                case 1: context.go('/converter'); break;
-                case 2: context.go('/marketplace'); break;
-                case 3: context.go('/settings'); break;
-              }
+        SingleActivator(
+          LogicalKeyboardKey.comma,
+          meta: modifier,
+          control: !modifier,
+        ): const NavigateSectionIntent(
+          3,
+        ),
+        SingleActivator(
+          LogicalKeyboardKey.keyS,
+          meta: modifier,
+          control: !modifier,
+          shift: true,
+        ): const ToggleSidebarIntent(),
+      },
+    };
+    return Shortcuts(
+      shortcuts: bindings,
+      child: Actions(
+        actions: {
+          NavigateSectionIntent: CallbackAction<NavigateSectionIntent>(
+            onInvoke: (intent) {
+              _navigate(intent.index);
+              return null;
             },
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined, size: 22),
-                selectedIcon: Icon(Icons.home_rounded, size: 22),
-                label: 'Home',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.add_link_outlined, size: 22),
-                selectedIcon: Icon(Icons.add_link, size: 22),
-                label: 'Import',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.storefront_outlined, size: 22),
-                selectedIcon: Icon(Icons.storefront_rounded, size: 22),
-                label: 'Market',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.tune_outlined, size: 22),
-                selectedIcon: Icon(Icons.tune_rounded, size: 22),
-                label: 'Settings',
-              ),
-            ],
+          ),
+          ToggleSidebarIntent: CallbackAction<ToggleSidebarIntent>(
+            onInvoke: (_) {
+              setState(() => _expanded = !_expanded);
+              return null;
+            },
+          ),
+        },
+        child: FocusTraversalGroup(
+          policy: WidgetOrderTraversalPolicy(),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final desktop = constraints.maxWidth >= (apple ? 760 : 900);
+              // GoRouter owns its Navigator key. Mount exactly one copy.
+              // A nested route's ModalBarrier blocks earlier-painted semantics.
+              // Keep it inside its own container so the desktop sidebar remains
+              // reachable; root modal dialogs still block the whole shell.
+              final content = Semantics(
+                container: true,
+                explicitChildNodes: true,
+                child: ClipRect(child: widget.child),
+              );
+              return Scaffold(
+                body: desktop
+                    ? Row(
+                        children: [
+                          _sidebar(
+                            cs,
+                            s,
+                            labels,
+                            icons,
+                            selectedIcons,
+                            index,
+                            apple,
+                            textScale,
+                          ),
+                          Expanded(child: content),
+                        ],
+                      )
+                    : content,
+                bottomNavigationBar: desktop
+                    ? null
+                    : DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: cs.surface,
+                          border: Border(
+                            top: BorderSide(
+                              color: cs.outlineVariant,
+                              width: 0.5,
+                            ),
+                          ),
+                        ),
+                        child: SafeArea(
+                          top: false,
+                          child: NavigationBar(
+                            selectedIndex: index,
+                            height: 56,
+                            labelBehavior:
+                                NavigationDestinationLabelBehavior.alwaysHide,
+                            onDestinationSelected: _navigate,
+                            destinations: [
+                              for (var i = 0; i < labels.length; i++)
+                                NavigationDestination(
+                                  icon: i == 0
+                                      ? const HoneyMark(size: 20)
+                                      : Icon(icons[i], size: 20),
+                                  selectedIcon: i == 0
+                                      ? const HoneyMark(size: 20)
+                                      : Icon(selectedIcons[i], size: 20),
+                                  label: labels[i],
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+              );
+            },
           ),
         ),
       ),
     );
   }
+
+  Widget _sidebar(
+    ColorScheme cs,
+    S s,
+    List<String> labels,
+    List<IconData> icons,
+    List<IconData> selectedIcons,
+    int index,
+    bool apple,
+    double textScale,
+  ) => Container(
+    key: const ValueKey('desktop-sidebar'),
+    width: _expanded ? (textScale > 1.4 ? 240 : 200) : 60,
+    decoration: BoxDecoration(
+      color: cs.surfaceContainer,
+      border: Border(right: BorderSide(color: cs.outlineVariant, width: 0.5)),
+    ),
+    child: SafeArea(
+      right: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 6, 12),
+            child: Row(
+              children: [
+                if (_expanded) ...[
+                  HoneyMark(color: cs.primary, size: 19),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Honey',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+                IconButton(
+                  tooltip: _expanded ? s.hideSidebar : s.showSidebar,
+                  icon: Icon(
+                    _expanded
+                        ? Icons.view_sidebar_outlined
+                        : Icons.menu_rounded,
+                    size: 16,
+                  ),
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                ),
+              ],
+            ),
+          ),
+          for (var i = 0; i < labels.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+              child: Semantics(
+                button: true,
+                selected: i == index,
+                label: labels[i],
+                hint: s.navigationShortcut('${apple ? '⌘' : 'Ctrl+'}${i + 1}'),
+                onTap: () => _navigate(i),
+                child: ExcludeSemantics(
+                  child: Material(
+                    color: i == index ? cs.surface : Colors.transparent,
+                    borderRadius: BorderRadius.circular(6),
+                    clipBehavior: Clip.antiAlias,
+                    child: Tooltip(
+                      excludeFromSemantics: true,
+                      message:
+                          '${labels[i]} (${apple ? '⌘' : 'Ctrl+'}${i + 1})',
+                      child: InkWell(
+                        onTap: () => _navigate(i),
+                        focusColor: cs.primary.withValues(alpha: 0.16),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 36),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                if (i == 0)
+                                  HoneyMark(
+                                    color: i == index
+                                        ? cs.primary
+                                        : cs.onSurfaceVariant,
+                                    size: 18,
+                                  )
+                                else
+                                  Icon(
+                                    i == index ? selectedIcons[i] : icons[i],
+                                    color: i == index
+                                        ? cs.primary
+                                        : cs.onSurfaceVariant,
+                                    size: 18,
+                                  ),
+                                if (_expanded) ...[
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      labels[i],
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: i == index
+                                            ? FontWeight.w600
+                                            : FontWeight.w400,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${apple ? '⌘' : 'Ctrl+'}${i + 1}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: cs.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }

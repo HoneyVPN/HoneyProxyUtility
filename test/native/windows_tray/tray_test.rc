@@ -1,0 +1,2 @@
+#include "../../../windows/runner/resource.h"
+IDI_APP_ICON ICON "../../../windows/runner/resources/app_icon.ico"

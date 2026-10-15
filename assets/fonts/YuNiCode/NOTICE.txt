@@ -1,0 +1,4 @@
+Unbounded 800, original YuNiCode developer-signature subset.
+Copyright 2022 The Unbounded Project Authors (https://github.com/googlefonts/unbounded)
+https://github.com/googlefonts/unbounded
+Converted from the existing local brand WOFF2 to a static weight-800 TTF using FontTools 4.58.5; original weight-800 glyph outlines preserved.

@@ -72,8 +72,61 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+# Ship the compiler's redistributable runtime beside the UI and Flutter DLLs.
+# A fresh Windows machine may not have a global Visual C++ runtime installed.
+if(MSVC)
+  set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+  set(CMAKE_INSTALL_DEBUG_LIBRARIES FALSE)
+  include(InstallRequiredSystemLibraries)
+  foreach(HONEY_REQUIRED_RUNTIME msvcp140.dll vcruntime140.dll vcruntime140_1.dll)
+    set(HONEY_RUNTIME_FOUND FALSE)
+    foreach(HONEY_RUNTIME_FILE IN LISTS CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+      get_filename_component(HONEY_RUNTIME_NAME "${HONEY_RUNTIME_FILE}" NAME)
+      string(TOLOWER "${HONEY_RUNTIME_NAME}" HONEY_RUNTIME_NAME)
+      if(HONEY_RUNTIME_NAME STREQUAL HONEY_REQUIRED_RUNTIME)
+        set(HONEY_RUNTIME_FOUND TRUE)
+      endif()
+    endforeach()
+    if(NOT HONEY_RUNTIME_FOUND)
+      message(FATAL_ERROR "The MSVC redistributable ${HONEY_REQUIRED_RUNTIME} is missing")
+    endif()
+  endforeach()
+  install(PROGRAMS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    CONFIGURATIONS Profile;Release COMPONENT Runtime)
+endif()
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/runner/windows_vpn_supervisor.ps1"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runner/windows_proxy_settings.cs"
+  "${CMAKE_CURRENT_SOURCE_DIR}/service/DesktopUserIdentity.cs"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+
+# The privileged broker is a fixed service executable installed beside the UI.
+# It is compiled from reviewed sources, never downloaded as an opaque helper.
+find_program(HONEY_POWERSHELL_EXECUTABLE NAMES powershell.exe)
+if(NOT HONEY_POWERSHELL_EXECUTABLE)
+  message(FATAL_ERROR "Windows PowerShell is required to compile the VPN service")
+endif()
+set(HONEY_SERVICE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/windows-service/HoneyVpnService.exe")
+add_custom_command(OUTPUT "${HONEY_SERVICE_OUTPUT}"
+  COMMAND "${HONEY_POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive
+    -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/build_windows_service.ps1"
+    -SourceDirectory "${CMAKE_CURRENT_SOURCE_DIR}/service"
+    -OutputDirectory "${CMAKE_CURRENT_BINARY_DIR}/windows-service"
+  DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/service/HoneyVpnService.cs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/service/SafeTunConfiguration.cs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/service/ProviderGeoRuleSetValidator.cs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/service/KernelEpoch.cs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/service/DesktopUserIdentity.cs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/build_windows_service.ps1"
+  VERBATIM)
+add_custom_target(honey_windows_service ALL DEPENDS "${HONEY_SERVICE_OUTPUT}")
+install(FILES "${HONEY_SERVICE_OUTPUT}"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)

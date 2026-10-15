@@ -1,0 +1,3 @@
+// Generated only from the verified pinned CI framework; an absent core keeps
+// the host preview compileable and the provider explicitly unavailable.
+#include? "../Frameworks/Libbox.xcconfig"

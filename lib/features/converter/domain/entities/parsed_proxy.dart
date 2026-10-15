@@ -1,3 +1,5 @@
+import '../validation/protocol_compatibility.dart';
+
 /// Sealed class hierarchy for all parsed proxy configurations.
 /// Use exhaustive switch to handle each protocol.
 sealed class ParsedProxy {
@@ -27,21 +29,25 @@ final class VmessConfig extends ParsedProxy {
     required this.fingerprint,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String uuid;
   final int alterId;
-  final String security;       // auto | aes-128-gcm | chacha20-poly1305 | none
-  final String network;        // tcp | ws | h2 | grpc | httpupgrade
+  final String security; // auto | aes-128-gcm | chacha20-poly1305 | none
+  final String network; // tcp | ws | h2 | grpc | httpupgrade
   final String path;
   final String wsHost;
-  final String tls;            // '' | 'tls'
+  final String tls; // '' | 'tls'
   final String sni;
   final String alpn;
   final String fingerprint;
 
-  @override String get protocolLabel => 'VMess';
+  @override
+  String get protocolLabel => 'VMess';
 }
 
 final class VlessConfig extends ParsedProxy {
@@ -64,28 +70,61 @@ final class VlessConfig extends ParsedProxy {
     required this.grpcServiceName,
     this.xhttpMode = '',
     this.xPaddingBytes = '',
+    this.alpn = const [],
+    this.allowInsecure = false,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String uuid;
-  final String flow;             // xtls-rprx-vision | ''
-  final String encryption;       // none
-  final String security;         // none | tls | reality
+  final String flow; // selected core: xtls-rprx-vision | ''; no vision-udp443
+  final String encryption; // none | selected-core VLESS Encryption
+  final String security; // none | tls | reality
   final String sni;
   final String fingerprint;
-  final String publicKey;        // Reality pbk
-  final String shortId;          // Reality sid
-  final String spiderX;          // Reality spx
-  final String transport;        // tcp | ws | h2 | grpc | httpupgrade
+  final String publicKey; // Reality pbk
+  final String shortId; // Reality sid
+  final String spiderX; // Reality spx
+  final String
+  transport; // basic tcp | ws | h2/http | grpc | httpupgrade | xhttp
   final String path;
   final String transportHost;
   final String grpcServiceName;
   final String xhttpMode;
   final String xPaddingBytes;
+  final List<String> alpn;
+  final bool allowInsecure;
 
-  @override String get protocolLabel => 'VLESS';
+  // Reality requires uTLS in the selected core, even when an imported or
+  // previously saved profile omitted its optional browser fingerprint.
+  String get effectiveFingerprint =>
+      security == 'reality' && fingerprint.isEmpty ? 'chrome' : fingerprint;
+
+  // The selected xHTTP core chooses its HTTP/TLS path from configured ALPN.
+  // An omitted list must select HTTP/2 for an encrypted transport.
+  List<String> get effectiveAlpn =>
+      transport == 'xhttp' &&
+          (security == 'tls' || security == 'reality') &&
+          alpn.isEmpty
+      ? const ['h2']
+      : alpn;
+
+  void validateCoreCompatibility() => validateVlessCoreCompatibility(
+    encryption: encryption,
+    security: security,
+    transport: transport,
+    flow: flow,
+    xhttpMode: xhttpMode,
+    spiderX: spiderX,
+    alpn: alpn,
+  );
+
+  @override
+  String get protocolLabel => 'VLESS';
 }
 
 final class TrojanConfig extends ParsedProxy {
@@ -103,19 +142,23 @@ final class TrojanConfig extends ParsedProxy {
     required this.transportHost,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String password;
-  final String security;       // tls | xtls
+  final String security; // tls | xtls
   final String sni;
   final String alpn;
   final String fingerprint;
-  final String transport;      // tcp | ws | h2 | grpc
+  final String transport; // tcp | ws | h2 | grpc
   final String path;
   final String transportHost;
 
-  @override String get protocolLabel => 'Trojan';
+  @override
+  String get protocolLabel => 'Trojan';
 }
 
 final class ShadowsocksConfig extends ParsedProxy {
@@ -129,15 +172,20 @@ final class ShadowsocksConfig extends ParsedProxy {
     required this.pluginOpts,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
-  final String method;        // aes-128-gcm | aes-256-gcm | chacha20-ietf-poly1305 | 2022-blake3-*
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
+  final String
+  method; // aes-128-gcm | aes-256-gcm | chacha20-ietf-poly1305 | 2022-blake3-*
   final String password;
-  final String plugin;        // '' | obfs-local | v2ray-plugin
+  final String plugin; // '' | obfs-local | v2ray-plugin
   final String pluginOpts;
 
-  @override String get protocolLabel => 'SS';
+  @override
+  String get protocolLabel => 'SS';
 }
 
 final class Hysteria2Config extends ParsedProxy {
@@ -152,20 +200,39 @@ final class Hysteria2Config extends ParsedProxy {
     required this.obfsPassword,
     required this.pinSha256,
     this.ports,
+    this.hopInterval = '',
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String auth;
   final String sni;
   final bool insecure;
-  final String obfs;            // '' | salamander
+  final String obfs; // '' | salamander
   final String obfsPassword;
-  final String pinSha256;
-  final String? ports;          // port hopping e.g. "5000-6000"
+  final String
+  pinSha256; // legacy full-certificate pin; rejected by current core
+  final String? ports; // port hopping e.g. "5000-6000"
+  final String hopInterval; // fixed seconds, empty uses core default (30s)
 
-  @override String get protocolLabel => 'Hy2';
+  List<String> get serverPorts => hysteria2ServerPorts(ports);
+
+  void validateCoreCompatibility() {
+    validateHysteria2CoreCompatibility(
+      pinSha256: pinSha256,
+      obfs: obfs,
+      obfsPassword: obfsPassword,
+      hopInterval: hopInterval,
+    );
+    hysteria2ServerPorts(ports);
+  }
+
+  @override
+  String get protocolLabel => 'Hy2';
 }
 
 final class TuicConfig extends ParsedProxy {
@@ -182,18 +249,22 @@ final class TuicConfig extends ParsedProxy {
     required this.allowInsecure,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String uuid;
   final String password;
   final String sni;
   final String alpn;
-  final String congestionControl;  // bbr | cubic | new_reno
-  final String udpRelayMode;       // native | quic
+  final String congestionControl; // bbr | cubic | new_reno
+  final String udpRelayMode; // native | quic
   final bool allowInsecure;
 
-  @override String get protocolLabel => 'TUIC';
+  @override
+  String get protocolLabel => 'TUIC';
 }
 
 final class WireGuardConfig extends ParsedProxy {
@@ -210,9 +281,12 @@ final class WireGuardConfig extends ParsedProxy {
     this.reserved,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String privateKey;
   final String publicKey;
   final String presharedKey;
@@ -221,7 +295,8 @@ final class WireGuardConfig extends ParsedProxy {
   final int mtu;
   final List<int>? reserved;
 
-  @override String get protocolLabel => 'WG';
+  @override
+  String get protocolLabel => 'WG';
 }
 
 final class AmneziaWGConfig extends ParsedProxy {
@@ -249,9 +324,12 @@ final class AmneziaWGConfig extends ParsedProxy {
     this.h4 = 4,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String privateKey;
   final String publicKey;
   final String presharedKey;
@@ -259,19 +337,20 @@ final class AmneziaWGConfig extends ParsedProxy {
   final List<String> dns;
   final int mtu;
   final List<int>? reserved;
-  final int jc;    // junk packet count
-  final int jmin;  // junk packet min size
-  final int jmax;  // junk packet max size
-  final int s1;    // init packet junk sizes
+  final int jc; // junk packet count
+  final int jmin; // junk packet min size
+  final int jmax; // junk packet max size
+  final int s1; // init packet junk sizes
   final int s2;
   final int s3;
   final int s4;
-  final int h1;    // magic headers
+  final int h1; // magic headers
   final int h2;
   final int h3;
   final int h4;
 
-  @override String get protocolLabel => 'AWG';
+  @override
+  String get protocolLabel => 'AWG';
 }
 
 final class NaiveConfig extends ParsedProxy {
@@ -281,17 +360,21 @@ final class NaiveConfig extends ParsedProxy {
     required this.port,
     required this.username,
     required this.password,
-    required this.scheme,  // https | quic
+    required this.scheme, // https | quic
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String username;
   final String password;
   final String scheme;
 
-  @override String get protocolLabel => 'NaïveProxy';
+  @override
+  String get protocolLabel => 'NaïveProxy';
 }
 
 final class ShadowTlsConfig extends ParsedProxy {
@@ -305,13 +388,17 @@ final class ShadowTlsConfig extends ParsedProxy {
     required this.innerProxy,
   });
 
-  @override final String name;
-  @override final String host;
-  @override final int port;
+  @override
+  final String name;
+  @override
+  final String host;
+  @override
+  final int port;
   final String password;
   final String sni;
-  final int version;  // 1 | 2 | 3
+  final int version; // 1 | 2 | 3
   final ParsedProxy innerProxy;
 
-  @override String get protocolLabel => 'ShadowTLS';
+  @override
+  String get protocolLabel => 'ShadowTLS';
 }

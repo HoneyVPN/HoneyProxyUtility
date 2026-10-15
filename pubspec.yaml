@@ -1,11 +1,11 @@
 name: honeyproxyutility
 description: HoneyProxyUtility — universal VPN client with provider marketplace
-version: 1.1.18+118
+version: 1.2.0+2129
 publish_to: none
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
-  flutter: ">=3.22.0"
+  sdk: ">=3.11.0 <4.0.0"
+  flutter: ">=3.41.7"
 
 dependencies:
   flutter:
@@ -14,7 +14,6 @@ dependencies:
     sdk: flutter
 
   # VPN integration via Platform Channels (sing-box libbox JNI integrated natively)
-  flutter_v2ray: ^1.0.10
 
   # State management
   flutter_riverpod: ^3.3.1
@@ -30,6 +29,7 @@ dependencies:
 
   # Network
   dio: ^5.9.2
+  crypto: ^3.0.7
   connectivity_plus: ^7.1.1
 
   # Link parsing
@@ -40,6 +40,7 @@ dependencies:
   qr_flutter: ^4.1.0
 
   # UI / animations
+  cupertino_icons: ^1.0.9
   lottie: ^3.3.3
   flutter_animate: ^4.5.2
   cached_network_image: ^3.4.1
@@ -76,9 +77,15 @@ flutter:
   assets:
     - assets/lottie/
     - assets/images/
+    - assets/flags/noto/
+    - assets/fonts/YuNiCode/
     - assets/geo/
 
   fonts:
+    - family: YuNiCodeBrand
+      fonts:
+        - asset: assets/fonts/YuNiCode/YuNiCode-800.ttf
+          weight: 800
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter/Inter-Regular.ttf

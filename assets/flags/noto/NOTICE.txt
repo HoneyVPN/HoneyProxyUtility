@@ -1,0 +1,9 @@
+Noto Emoji country flags — Google and Noto Emoji contributors.
+Copyright 2013 Google, Inc. All Rights Reserved.
+Source: https://github.com/googlefonts/noto-emoji
+Pinned commit: e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e
+Original 128px PNG images, copied without modification from 3D/png/128.
+Upstream README attributes image resources to Apache 2.0 and region flags to
+public domain or copyright exemptions. Upstream OFL 1.1 font license is also
+included with the Apache 2.0 and region-flags license notices.
+No images are fetched at runtime. All supported 249 country flags are bundled.

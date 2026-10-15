@@ -1,24 +1,32 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File, HttpClient, Platform, Process, ServerSocket, Socket;
-
-import 'package:flutter/services.dart';
+import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/server_profile_model.dart';
-import '../../../connection/data/singbox/singbox_config_generator.dart';
+import '../../data/services/profile_latency_service.dart';
 import '../../../converter/data/parsers/link_dispatcher.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
+import '../../../subscriptions/data/services/proxy_identity.dart';
+import '../../../subscriptions/data/services/subscription_policy.dart';
+import '../../../subscriptions/data/models/subscription_model.dart';
+import '../../../subscriptions/domain/entities/free_server_snapshot.dart';
 
 const _serversKey = 'honeyvpn_servers';
+const _freeRemovedKey = 'honeyvpn_free_server_removed_v1';
+
+final builtInFreeRandomProvider = Provider<Random>((ref) => Random());
+
+final builtInFreeServerPresentProvider = Provider<bool>((ref) {
+  final profiles = ref.watch(serversNotifierProvider).value ?? [];
+  return profiles.any((s) => s.subscriptionId == builtInSubscriptionUrl);
+});
 
 final serversNotifierProvider =
     AsyncNotifierProvider<ServersNotifier, List<ServerProfileModel>>(
-  ServersNotifier.new,
-);
+      ServersNotifier.new,
+    );
 
 // Read-only computed provider — always reflects isSelected from the server list
 final selectedServerProvider = Provider<ServerProfileModel?>((ref) {
@@ -27,278 +35,620 @@ final selectedServerProvider = Provider<ServerProfileModel?>((ref) {
   return servers.firstWhere((s) => s.isSelected, orElse: () => servers.first);
 });
 
-class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
+final profileLatencyServiceProvider = Provider<ProfileLatencyService>(
+  (ref) => IsolatedCoreLatencyService(),
+);
+
+class LatencyTestProgress {
+  const LatencyTestProgress({
+    this.isRunning = false,
+    this.completed = 0,
+    this.total = 0,
+    this.activeIds = const {},
+  });
+
+  final bool isRunning;
+  final int completed;
+  final int total;
+  final Set<int> activeIds;
+}
+
+final latencyTestProgressProvider =
+    NotifierProvider<LatencyTestProgressNotifier, LatencyTestProgress>(
+      LatencyTestProgressNotifier.new,
+    );
+
+class LatencyTestProgressNotifier extends Notifier<LatencyTestProgress> {
   @override
-  Future<List<ServerProfileModel>> build() => _load();
+  LatencyTestProgress build() => const LatencyTestProgress();
+
+  void update(LatencyTestProgress progress) => state = progress;
+}
+
+class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
+  Future<void> _pendingMutation = Future<void>.value();
+  Future<void>? _latencyBatch;
+  final _latencyCancellations = <LatencyCancellation>{};
+  LatencyCancellation? _batchCancellation;
+  final _profileGenerations = <int, int>{};
+  var _nextProfileGeneration = 0;
+  var _freeRevision = 0;
+  var _freeRemoved = false;
+
+  /// Serialize read/modify/write operations, including latency callbacks. A
+  /// refresh must not overwrite another subscription or a concurrent selection.
+  Future<List<ServerProfileModel>> _update(
+    FutureOr<List<ServerProfileModel>> Function(List<ServerProfileModel>)
+    transform, {
+    Future<void> Function()? afterSave,
+  }) {
+    final operation = _pendingMutation.then((_) async {
+      await future;
+      final before = state.requireValue;
+      final updated = await transform(before);
+      await _save(updated);
+      await afterSave?.call();
+      if (ref.mounted) {
+        final previous = {for (final profile in before) profile.id: profile};
+        _profileGenerations.removeWhere(
+          (id, _) => !updated.any((profile) => profile.id == id),
+        );
+        for (final profile in updated) {
+          final old = previous[profile.id];
+          if (old == null ||
+              old.configJson != profile.configJson ||
+              old.subscriptionId != profile.subscriptionId ||
+              old.addedAt != profile.addedAt) {
+            _profileGenerations[profile.id] = ++_nextProfileGeneration;
+          }
+        }
+        state = AsyncData(updated);
+      }
+      return updated;
+    });
+    // A failed write must not prevent subsequent operations from running.
+    _pendingMutation = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return operation;
+  }
+
+  @override
+  Future<List<ServerProfileModel>> build() {
+    ref.onDispose(() {
+      _batchCancellation?.cancel();
+      for (final cancellation in _latencyCancellations) {
+        cancellation.cancel();
+      }
+    });
+    return _load().then((profiles) {
+      for (final profile in profiles) {
+        _profileGenerations[profile.id] = ++_nextProfileGeneration;
+      }
+      return profiles;
+    });
+  }
 
   Future<List<ServerProfileModel>> _load() async {
     final prefs = await SharedPreferences.getInstance();
+    // Legacy setters change their cache before a platform write can fail.
+    // Refresh the platform snapshot before provider recreation. Some platforms,
+    // including Windows, return a backend cache rather than rereading disk;
+    // failed mutations restore their own key separately. Keep this read awaited
+    // so it cannot replace the cache after a subsequent successful mutation.
+    await prefs.reload();
     final raw = prefs.getString(_serversKey);
-    if (raw == null || raw.isEmpty) return [];
+    List<ServerProfileModel> loaded;
     try {
-      // latencyMs intentionally stripped — stale ping values should not persist across sessions
-      return ServerProfileModel.listFromJson(raw)
-          .map((s) => ServerProfileModel(
-                id: s.id,
-                protocol: s.protocol,
-                name: s.name,
-                host: s.host,
-                port: s.port,
-                configJson: s.configJson,
-                subscriptionId: s.subscriptionId,
-                addedAt: s.addedAt,
-                isSelected: s.isSelected,
-                isFavorite: s.isFavorite,
-              ))
-          .toList();
+      loaded = raw == null || raw.isEmpty
+          ? <ServerProfileModel>[]
+          : ServerProfileModel.listFromJson(raw);
     } catch (_) {
-      return [];
+      loaded = [];
     }
+    // latencyMs intentionally stripped — stale ping values should not persist.
+    final normalized = loaded
+        .map(
+          (s) => ServerProfileModel(
+            id: s.id,
+            protocol: s.protocol,
+            name: s.name,
+            host: s.host,
+            port: s.port,
+            configJson: s.configJson,
+            subscriptionId: normalizeSubscriptionUrl(s.subscriptionId),
+            addedAt: s.addedAt,
+            isSelected: s.isSelected,
+            isFavorite: s.isFavorite,
+          ),
+        )
+        .toList();
+    final free = normalized
+        .where((s) => s.subscriptionId == builtInSubscriptionUrl)
+        .toList();
+    final removed = prefs.getBool(_freeRemovedKey);
+    if (removed != null) {
+      _freeRemoved = removed;
+    } else {
+      // Old releases did not persist deletion intent. With no free profile,
+      // a previous successful fetch is the only evidence of a user removal.
+      // Conservatively preserve that absence. A first failed fetch (without
+      // a success timestamp) remains eligible for startup/automatic retries.
+      _freeRemoved = free.isEmpty && _hadSuccessfulFreeFeed(prefs);
+      await _saveFreeRemoved(_freeRemoved);
+    }
+    if (_freeRemoved) {
+      normalized.removeWhere((s) => s.subscriptionId == builtInSubscriptionUrl);
+    }
+    // Repair legacy free-feed imports even when the network is unavailable.
+    if (!_freeRemoved && free.length > 1) {
+      final retained =
+          free.where((s) => s.isSelected).firstOrNull ??
+          free.where((s) => s.isFavorite).firstOrNull ??
+          free.first;
+      normalized.removeWhere(
+        (s) =>
+            s.subscriptionId == builtInSubscriptionUrl &&
+            !identical(s, retained),
+      );
+    }
+    if (normalized.length != loaded.length ||
+        loaded.any(
+          (s) => s.subscriptionId != normalizeSubscriptionUrl(s.subscriptionId),
+        )) {
+      await _save(normalized);
+    }
+    return normalized;
+  }
+
+  static bool _hadSuccessfulFreeFeed(SharedPreferences prefs) {
+    final raw = prefs.getString('nexproxy_subscriptions');
+    if (raw == null) return false;
+    try {
+      return SubscriptionModel.listFromJson(raw).any(
+        (sub) =>
+            normalizeSubscriptionUrl(sub.url) == builtInSubscriptionUrl &&
+            sub.lastUpdated != null,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _saveFreeRemoved(bool removed) async {
+    final prefs = await SharedPreferences.getInstance();
+    final previous = prefs.getBool(_freeRemovedKey);
+    try {
+      if (!await prefs.setBool(_freeRemovedKey, removed)) {
+        throw StateError('Failed to save free server preference');
+      }
+    } catch (error, stack) {
+      // Restore this key's known value once; a failed restoration is not proof
+      // of durable storage. Never undo a separately committed profile mutation.
+      try {
+        if (previous == null) {
+          await prefs.remove(_freeRemovedKey);
+        } else {
+          await prefs.setBool(_freeRemovedKey, previous);
+        }
+      } catch (_) {}
+      Error.throwWithStackTrace(error, stack);
+    }
+    _freeRemoved = removed;
+  }
+
+  /// Read-only publication lease for dependent subscription metadata.
+  /// Removing/rotating the free slot retires an in-flight geo bundle too.
+  bool isCurrentFreeServerSnapshot(FreeServerSnapshot snapshot) =>
+      snapshot.revision == _freeRevision && snapshot.removed == _freeRemoved;
+
+  Future<FreeServerSnapshot> freeServerSnapshot() async {
+    await future;
+    await _pendingMutation;
+    return FreeServerSnapshot(
+      revision: _freeRevision,
+      removed: _freeRemoved,
+      present: state.requireValue.any(
+        (s) => s.subscriptionId == builtInSubscriptionUrl,
+      ),
+    );
+  }
+
+  Future<void> _recordFreeRemoval(List<ServerProfileModel> removed) async {
+    if (!removed.any((s) => s.subscriptionId == builtInSubscriptionUrl)) return;
+    // Save the tombstone first. If profile storage then fails or the process
+    // exits between writes, startup removes the stale profile, not the intent.
+    await _saveFreeRemoved(true);
+    _freeRevision++;
   }
 
   Future<void> _save(List<ServerProfileModel> models) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_serversKey, ServerProfileModel.listToJson(models));
-  }
-
-  Future<void> addFromProxy(ParsedProxy proxy, {String subscriptionId = ''}) async {
-    final current = state.value ?? [];
-    final id = current.isEmpty
-        ? DateTime.now().millisecondsSinceEpoch
-        : current.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
-    final model = ServerProfileModel(
-      id: id,
-      protocol: _protocolTag(proxy),
-      name: proxy.displayName,
-      host: proxy.host,
-      port: proxy.port,
-      configJson: json.encode({'rawLink': _rawLink(proxy)}),
-      subscriptionId: subscriptionId,
-      addedAt: DateTime.now(),
-    );
-    final updated = [...current, model];
-    await _save(updated);
-    state = AsyncData(updated);
-  }
-
-  Future<void> addFromProxies(List<ParsedProxy> proxies, {String subscriptionId = ''}) async {
-    final current = state.value ?? [];
-    // Deduplicate by protocol+host+port to avoid false positives from same host on different protocols
-    final existingKeys = current.map((s) => '${s.protocol}:${s.host}:${s.port}').toSet();
-    var nextId = current.isEmpty
-        ? DateTime.now().millisecondsSinceEpoch
-        : current.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
-    final newModels = <ServerProfileModel>[];
-    for (final p in proxies) {
-      final key = '${_protocolTag(p)}:${p.host}:${p.port}';
-      if (existingKeys.contains(key) && subscriptionId.isEmpty) continue;
-      newModels.add(ServerProfileModel(
-        id: nextId++,
-        protocol: _protocolTag(p),
-        name: p.displayName,
-        host: p.host,
-        port: p.port,
-        configJson: json.encode({'rawLink': _rawLink(p)}),
-        subscriptionId: subscriptionId,
-        addedAt: DateTime.now(),
-      ));
+    final previous = prefs.getString(_serversKey);
+    try {
+      if (!await prefs.setString(
+        _serversKey,
+        ServerProfileModel.listToJson(models),
+      )) {
+        throw StateError('Failed to save server profiles');
+      }
+    } catch (error, stack) {
+      // Legacy setters may mutate both Dart and Windows backend caches before
+      // failing. Restore only this key once, preserving a committed opt-out.
+      try {
+        if (previous == null) {
+          await prefs.remove(_serversKey);
+        } else {
+          await prefs.setString(_serversKey, previous);
+        }
+      } catch (_) {}
+      Error.throwWithStackTrace(error, stack);
     }
-    if (newModels.isEmpty) return;
-    final updated = [...current, ...newModels];
-    await _save(updated);
-    state = AsyncData(updated);
   }
 
-  Future<void> delete(int id) async {
-    final current = state.value ?? [];
-    final updated = current.where((s) => s.id != id).toList();
-    await _save(updated);
-    state = AsyncData(updated);
+  Future<void> addFromProxy(ParsedProxy proxy, {String subscriptionId = ''}) =>
+      addFromProxies([proxy], subscriptionId: subscriptionId);
+
+  Future<void> addFromProxies(
+    List<ParsedProxy> proxies, {
+    String subscriptionId = '',
+  }) async {
+    final source = normalizeSubscriptionUrl(subscriptionId);
+    if (source.isNotEmpty) {
+      // Re-importing a feed replaces its previous snapshot instead of appending.
+      await replaceSubscription(source, proxies);
+      return;
+    }
+    await _update((current) {
+      final existingKeys = current
+          .where((s) => s.subscriptionId.isEmpty)
+          .map(_profileIdentity)
+          .whereType<String>()
+          .toSet();
+      var nextId = _nextId(current);
+      final newModels = <ServerProfileModel>[];
+      for (final p in proxies) {
+        if (!existingKeys.add(proxyIdentity(p))) continue;
+        newModels.add(_modelFromProxy(p, nextId++, ''));
+      }
+      return [...current, ...newModels];
+    });
   }
 
-  Future<void> deleteAll(List<int> ids) async {
-    final current = state.value ?? [];
+  Future<void> delete(int id, {String? expectedSubscriptionId}) async {
+    final source = expectedSubscriptionId == null
+        ? null
+        : normalizeSubscriptionUrl(expectedSubscriptionId);
+    if (source == builtInSubscriptionUrl) {
+      // Confirmation dialogs hold a snapshot. A refresh may rotate its ID
+      // before the user confirms; the intent still removes the one free node.
+      await deleteBySubscription(source!);
+      return;
+    }
+    bool matches(ServerProfileModel profile) =>
+        profile.id == id &&
+        (source == null || profile.subscriptionId == source);
+    await _update((current) async {
+      await _recordFreeRemoval(current.where(matches).toList());
+      return current.where((s) => !matches(s)).toList();
+    });
+  }
+
+  Future<void> deleteAll(
+    List<int> ids, {
+    String? expectedSubscriptionId,
+  }) async {
+    final source = expectedSubscriptionId == null
+        ? null
+        : normalizeSubscriptionUrl(expectedSubscriptionId);
+    if (source == builtInSubscriptionUrl) {
+      await deleteBySubscription(source!);
+      return;
+    }
     final idSet = ids.toSet();
-    final updated = current.where((s) => !idSet.contains(s.id)).toList();
-    await _save(updated);
-    state = AsyncData(updated);
+    bool matches(ServerProfileModel profile) =>
+        idSet.contains(profile.id) &&
+        (source == null || profile.subscriptionId == source);
+    await _update((current) async {
+      await _recordFreeRemoval(current.where(matches).toList());
+      return current.where((s) => !matches(s)).toList();
+    });
   }
 
   Future<void> selectServer(ServerProfileModel server) async {
-    final current = state.value ?? [];
-    final updated = current.map((s) => s.copyWith(isSelected: s.id == server.id)).toList();
-    await _save(updated);
-    state = AsyncData(updated);
+    await _update(
+      (current) => current
+          .map((s) => s.copyWith(isSelected: s.id == server.id))
+          .toList(),
+    );
   }
 
-  static const _nativeChannel = MethodChannel('ru.honeyvpn.proxy/native');
+  /// A native popup can outlive a refresh or deletion. Validate its captured
+  /// profile inside the same serialized mutation that saves the selection.
+  Future<bool> selectServerIfCurrent(ServerProfileModel expected) async {
+    var matched = false;
+    await _update((current) {
+      matched = current.any(expected.hasSameConnectionIdentity);
+      if (!matched) return current;
+      return current
+          .map(
+            (profile) =>
+                profile.copyWith(isSelected: profile.id == expected.id),
+          )
+          .toList();
+    });
+    return matched;
+  }
+
+  /// Apply the menu's explicit choice only to its captured connection. IDs can
+  /// be reused or refreshed while the menu is open; presentation updates such
+  /// as selection and latency must not make that snapshot stale.
+  Future<bool> setFavoriteIfCurrent(
+    ServerProfileModel expected,
+    bool isFavorite,
+  ) async {
+    var matched = false;
+    await _update((current) {
+      matched = current.any(expected.hasSameConnectionIdentity);
+      if (!matched) return current;
+      return current
+          .map(
+            (profile) => expected.hasSameConnectionIdentity(profile)
+                ? profile.copyWith(isFavorite: isFavorite)
+                : profile,
+          )
+          .toList();
+    });
+    return matched;
+  }
+
   static final _dispatcher = const LinkDispatcher();
 
   Future<void> updateLatency(int id, double ms) async {
-    final current = state.value ?? [];
-    final updated = current.map((s) => s.id == id ? s.copyWith(latencyMs: ms) : s).toList();
-    await _save(updated);
-    state = AsyncData(updated);
+    await _update(
+      (current) => current
+          .map((s) => s.id == id ? s.copyWith(latencyMs: ms) : s)
+          .toList(),
+    );
   }
 
   Future<double> testLatency(ServerProfileModel server) async {
-    final ms = await _testServerLatency(server);
-    await updateLatency(server.id, ms);
-    return ms;
-  }
-
-  Future<double> _testServerLatency(ServerProfileModel server) async {
+    final cancellation = LatencyCancellation();
+    final generation = _profileGenerations[server.id];
+    _latencyCancellations.add(cancellation);
     try {
-      final raw = (jsonDecode(server.configJson) as Map<String, dynamic>)['rawLink'] as String?;
-      if (raw != null) {
-        final proxy = _dispatcher.dispatch(raw);
-        return await _pingProxy(proxy);
+      final raw =
+          (jsonDecode(server.configJson) as Map<String, dynamic>)['rawLink']
+              as String?;
+      final ms = raw == null
+          ? -1.0
+          : await ref
+                .read(profileLatencyServiceProvider)
+                .measure(_dispatcher.dispatch(raw), cancellation: cancellation);
+      if (!cancellation.isCancelled && ref.mounted) {
+        await _update(
+          (current) => current.map((existing) {
+            // Refreshes can delete/reuse IDs or replace a node while its probe is
+            // in flight. Never attach an old result to a different profile.
+            return existing.id == server.id &&
+                    _profileGenerations[server.id] == generation &&
+                    existing.configJson == server.configJson &&
+                    existing.subscriptionId == server.subscriptionId
+                ? existing.copyWith(latencyMs: ms)
+                : existing;
+          }).toList(),
+        );
       }
-    } catch (_) {}
-    return -1;
-  }
-
-  Future<double> _pingProxy(ParsedProxy proxy) async {
-    if (Platform.isAndroid) return _pingAndroid(proxy);
-    return _pingTcp(proxy.host, proxy.port);
-  }
-
-  Future<double> _pingAndroid(ParsedProxy proxy) async {
-    // Get sing-box binary path via native channel
-    String? libDir;
-    try {
-      libDir = await _nativeChannel.invokeMethod<String>('getNativeLibDir');
-    } catch (_) {}
-    if (libDir == null) return -1;
-
-    final sbPath = '$libDir/libsingbox.so';
-    if (!File(sbPath).existsSync()) return -1;
-
-    // Bind port 0 to let the OS pick a free port, then release it for sing-box
-    int apiPort;
-    try {
-      final ss = await ServerSocket.bind('127.0.0.1', 0);
-      apiPort = ss.port;
-      await ss.close();
+      return ms;
     } catch (_) {
       return -1;
+    } finally {
+      _latencyCancellations.remove(cancellation);
+    }
+  }
+
+  /// Cancel closes active loopback requests and retires each owned probe core.
+  /// Completed results remain visible; cancellation does not mark nodes dead.
+  Future<void> cancelLatencyTests() async {
+    _batchCancellation?.cancel();
+    for (final cancellation in _latencyCancellations.toList()) {
+      cancellation.cancel();
+    }
+    await _latencyBatch;
+  }
+
+  // Repeated button taps join one batch. Bound native process count; each result
+  // still updates immediately, and all protocols have an explicit outcome.
+  Future<void> testAllLatency() {
+    if (_latencyBatch != null) return _latencyBatch!;
+    final operation = _runLatencyBatch();
+    _latencyBatch = operation;
+    return operation.whenComplete(() {
+      if (identical(_latencyBatch, operation)) _latencyBatch = null;
+    });
+  }
+
+  Future<void> _runLatencyBatch() async {
+    final cancellation = LatencyCancellation();
+    _batchCancellation = cancellation;
+    final activeIds = <int>{};
+    var completed = 0;
+    var total = 0;
+    void publish({bool running = true}) {
+      if (!ref.mounted) return;
+      ref
+          .read(latencyTestProgressProvider.notifier)
+          .update(
+            LatencyTestProgress(
+              isRunning: running,
+              completed: completed,
+              total: total,
+              activeIds: Set<int>.unmodifiable(activeIds),
+            ),
+          );
     }
 
-    String configJson;
+    publish();
     try {
-      configJson = SingboxConfigGenerator().generateForPing(proxy, apiPort);
-    } catch (_) {
-      return -1;
-    }
-
-    final dir = await getTemporaryDirectory();
-    final cfgFile = File('${dir.path}/sbping_$apiPort.json');
-
-    Process? process;
-    try {
-      await cfgFile.writeAsString(configJson);
-      process = await Process.start(sbPath, ['run', '-c', cfgFile.path]);
-      // Drain output streams to prevent the process from blocking on a full pipe buffer
-      process.stdout.drain<void>();
-      process.stderr.drain<void>();
-
-      if (!await _waitForPort('127.0.0.1', apiPort, 8000)) return -1;
-
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-      try {
-        final req = await client.getUrl(Uri.parse(
-          'http://127.0.0.1:$apiPort/proxies/proxy/delay'
-          '?timeout=5000&url=http%3A%2F%2Fwww.gstatic.com%2Fgenerate_204',
-        ));
-        final resp = await req.close().timeout(const Duration(seconds: 7));
-        if (resp.statusCode == 200) {
-          final body = await resp.transform(const Utf8Decoder()).join();
-          final data = jsonDecode(body) as Map<String, dynamic>;
-          return (data['delay'] as num).toDouble();
+      final servers = await future;
+      total = servers.length;
+      publish();
+      final iterator = servers.iterator;
+      Future<void> worker() async {
+        while (!cancellation.isCancelled && iterator.moveNext()) {
+          final server = iterator.current;
+          activeIds.add(server.id);
+          publish();
+          try {
+            await testLatency(server);
+          } catch (_) {}
+          activeIds.remove(server.id);
+          if (!cancellation.isCancelled) completed++;
+          publish();
         }
-        return -1;
-      } finally {
-        client.close(force: true);
       }
-    } catch (_) {
-      return -1;
+
+      await Future.wait(
+        List.generate(servers.length < 4 ? servers.length : 4, (_) => worker()),
+      );
     } finally {
-      process?.kill();
-      try { cfgFile.deleteSync(); } catch (_) {}
-    }
-  }
-
-
-
-  Future<bool> _waitForPort(String host, int port, int timeoutMs) async {
-    final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs));
-    while (DateTime.now().isBefore(deadline)) {
-      try {
-        final s = await Socket.connect(host, port,
-            timeout: const Duration(milliseconds: 300));
-        await s.close();
-        return true;
-      } catch (_) {
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+      activeIds.clear();
+      if (identical(_batchCancellation, cancellation)) {
+        _batchCancellation = null;
       }
-    }
-    return false;
-  }
-
-  Future<double> _pingTcp(String host, int port) async {
-    Socket? sock;
-    final sw = Stopwatch()..start();
-    try {
-      sock = await Socket.connect(host, port, timeout: const Duration(seconds: 5));
-      sw.stop();
-      return sw.elapsedMilliseconds.toDouble();
-    } catch (_) {
-      return -1;
-    } finally {
-      sw.stop();
-      await sock?.close();
+      publish(running: false);
     }
   }
 
-  // Sequential to avoid spawning many sing-box processes simultaneously.
-  // UI updates after each server completes, so users see pings appear one by one.
-  Future<void> testAllLatency() async {
-    final servers = List<ServerProfileModel>.of(state.value ?? []);
-    for (final s in servers) {
-      if (s.protocol == 'awg') continue;
-      try { await testLatency(s); } catch (_) {}
-    }
-  }
+  Future<int> replaceSubscription(
+    String subscriptionId,
+    List<ParsedProxy> proxies,
+  ) async => (await replaceSubscriptionSnapshot(subscriptionId, proxies)).count;
 
-  Future<void> replaceSubscription(String subscriptionId, List<ParsedProxy> proxies) async {
-    final current = state.value ?? [];
-    // Remove old servers from this subscription
-    final kept = current.where((s) => s.subscriptionId != subscriptionId).toList();
-    // Add new ones
-    var nextId = kept.isEmpty
-        ? DateTime.now().millisecondsSinceEpoch
-        : kept.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
-    final newModels = proxies.map((p) => ServerProfileModel(
-      id: nextId++,
-      protocol: _protocolTag(p),
-      name: p.displayName,
-      host: p.host,
-      port: p.port,
-      configJson: json.encode({'rawLink': _rawLink(p)}),
-      subscriptionId: subscriptionId,
-      addedAt: DateTime.now(),
-    )).toList();
-    final updated = [...kept, ...newModels];
-    await _save(updated);
-    state = AsyncData(updated);
+  Future<SubscriptionReplacement> replaceSubscriptionSnapshot(
+    String subscriptionId,
+    List<ParsedProxy> proxies, {
+    FreeServerSnapshot? freeSnapshot,
+    bool addBuiltInIfMissing = false,
+  }) async {
+    final source = normalizeSubscriptionUrl(subscriptionId);
+    if (source.isEmpty)
+      throw ArgumentError.value(subscriptionId, 'subscriptionId');
+    if (addBuiltInIfMissing && source != builtInSubscriptionUrl) {
+      throw ArgumentError('Only the built-in free feed can be restored');
+    }
+    // Empty/malformed feeds must not erase working profiles.
+    if (proxies.isEmpty) {
+      return SubscriptionReplacement(
+        count: (await future).where((s) => s.subscriptionId == source).length,
+        applied: false,
+      );
+    }
+    var applied = false;
+    final updated = await _update(
+      (current) {
+        final previous = current
+            .where((s) => s.subscriptionId == source)
+            .toList();
+        if (source == builtInSubscriptionUrl &&
+            ((freeSnapshot != null && freeSnapshot.revision != _freeRevision) ||
+                (_freeRemoved && !addBuiltInIfMissing) ||
+                (addBuiltInIfMissing && previous.isNotEmpty))) {
+          return current;
+        }
+        final byIdentity = <String, ServerProfileModel>{};
+        // Prefer the selected/favorite copy when repairing historical duplicates.
+        for (final s in previous.reversed) {
+          final identity = _profileIdentity(s);
+          if (identity == null) continue;
+          final old = byIdentity[identity];
+          if (old == null ||
+              s.isSelected ||
+              (!old.isSelected && s.isFavorite)) {
+            byIdentity[identity] = s;
+          }
+        }
+        final effective = subscriptionProxies(
+          source,
+          proxies,
+          random: source == builtInSubscriptionUrl
+              ? ref.read(builtInFreeRandomProvider)
+              : null,
+        );
+        final kept = current.where((s) => s.subscriptionId != source).toList();
+        var nextId = _nextId(current);
+        final replacements = effective.map((p) {
+          final old = byIdentity[proxyIdentity(p)];
+          return _modelFromProxy(p, old?.id ?? nextId++, source, previous: old);
+        }).toList();
+        // When a provider removes the active node, keep selection in that group.
+        if (previous.any((s) => s.isSelected) &&
+            !replacements.any((s) => s.isSelected) &&
+            replacements.isNotEmpty) {
+          replacements[0] = replacements[0].copyWith(isSelected: true);
+        }
+        applied = true;
+        return [...kept, ...replacements];
+      },
+      afterSave: () async {
+        if (!applied || source != builtInSubscriptionUrl) return;
+        // Clear an opt-out only after an explicit restore saved a valid profile.
+        // A crash between writes conservatively leaves the opt-out in force.
+        if (addBuiltInIfMissing) await _saveFreeRemoved(false);
+        _freeRevision++;
+      },
+    );
+    return SubscriptionReplacement(
+      count: updated.where((s) => s.subscriptionId == source).length,
+      applied: applied,
+    );
   }
 
   Future<void> deleteBySubscription(String subscriptionId) async {
-    final current = state.value ?? [];
-    final updated = current.where((s) => s.subscriptionId != subscriptionId).toList();
-    await _save(updated);
-    state = AsyncData(updated);
+    final source = normalizeSubscriptionUrl(subscriptionId);
+    await _update((current) async {
+      if (source == builtInSubscriptionUrl) {
+        await _saveFreeRemoved(true);
+        _freeRevision++;
+      }
+      return current.where((s) => s.subscriptionId != source).toList();
+    });
   }
+
+  static int _nextId(List<ServerProfileModel> current) => current.isEmpty
+      ? DateTime.now().millisecondsSinceEpoch
+      : current.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
+
+  static String? _profileIdentity(ServerProfileModel profile) {
+    try {
+      final raw =
+          (jsonDecode(profile.configJson) as Map<String, dynamic>)['rawLink']
+              as String;
+      return proxyIdentity(_dispatcher.dispatch(raw));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static ServerProfileModel _modelFromProxy(
+    ParsedProxy proxy,
+    int id,
+    String source, {
+    ServerProfileModel? previous,
+  }) => ServerProfileModel(
+    id: id,
+    protocol: _protocolTag(proxy),
+    name: proxy.displayName,
+    host: proxy.host,
+    port: proxy.port,
+    configJson: jsonEncode({'rawLink': _rawLink(proxy)}),
+    subscriptionId: source,
+    addedAt: previous?.addedAt ?? DateTime.now(),
+    isSelected: previous?.isSelected ?? false,
+    isFavorite: previous?.isFavorite ?? false,
+    latencyMs: previous?.latencyMs,
+  );
 
   static String _protocolTag(ParsedProxy p) => switch (p) {
     VmessConfig _ => 'vmess',
@@ -313,110 +663,148 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     ShadowTlsConfig _ => 'shadowtls',
   };
 
+  static String _endpoint(ParsedProxy p) =>
+      '${p.host.contains(':') ? '[${p.host}]' : p.host}:${p.port}';
+
   static String _rawLink(ParsedProxy p) {
     return switch (p) {
       VlessConfig c => () {
-          final params = <String, String>{
-            'encryption': c.encryption.isEmpty ? 'none' : c.encryption,
-            'security': c.security,
-            if (c.sni.isNotEmpty) 'sni': c.sni,
-            if (c.fingerprint.isNotEmpty) 'fp': c.fingerprint,
-            if (c.publicKey.isNotEmpty) 'pbk': c.publicKey,
-            if (c.shortId.isNotEmpty) 'sid': c.shortId,
-            if (c.spiderX.isNotEmpty) 'spx': Uri.encodeComponent(c.spiderX),
-            'type': c.transport.isEmpty ? 'tcp' : c.transport,
-            if (c.path.isNotEmpty) 'path': Uri.encodeComponent(c.path),
-            if (c.transportHost.isNotEmpty) 'host': c.transportHost,
-            if (c.grpcServiceName.isNotEmpty) 'serviceName': c.grpcServiceName,
-            if (c.flow.isNotEmpty) 'flow': c.flow,
-            if (c.xhttpMode.isNotEmpty) 'mode': c.xhttpMode,
-            if (c.xPaddingBytes.isNotEmpty) 'xPaddingBytes': c.xPaddingBytes,
-          };
-          final q = params.entries.map((e) => '${e.key}=${e.value}').join('&');
-          return 'vless://${c.uuid}@${c.host}:${c.port}?$q#${Uri.encodeComponent(c.name)}';
-        }(),
+        final params = <String, String>{
+          'encryption': c.encryption.isEmpty ? 'none' : c.encryption,
+          'security': c.security,
+          if (c.sni.isNotEmpty) 'sni': c.sni,
+          if (c.fingerprint.isNotEmpty) 'fp': c.fingerprint,
+          if (c.alpn.isNotEmpty) 'alpn': c.alpn.join(','),
+          if (c.allowInsecure) 'allowInsecure': '1',
+          if (c.publicKey.isNotEmpty) 'pbk': c.publicKey,
+          if (c.shortId.isNotEmpty) 'sid': c.shortId,
+          if (c.spiderX.isNotEmpty) 'spx': c.spiderX,
+          'type': c.transport.isEmpty ? 'tcp' : c.transport,
+          if (c.path.isNotEmpty) 'path': c.path,
+          if (c.transportHost.isNotEmpty) 'host': c.transportHost,
+          if (c.grpcServiceName.isNotEmpty) 'serviceName': c.grpcServiceName,
+          if (c.flow.isNotEmpty) 'flow': c.flow,
+          if (c.xhttpMode.isNotEmpty) 'mode': c.xhttpMode,
+          if (c.xPaddingBytes.isNotEmpty) 'xPaddingBytes': c.xPaddingBytes,
+        };
+        final q = Uri(queryParameters: params).query;
+        return 'vless://${Uri.encodeComponent(c.uuid)}@${_endpoint(c)}?$q#${Uri.encodeComponent(c.name)}';
+      }(),
       VmessConfig c => () {
-          final j = json.encode({
-            'v': '2', 'ps': c.name, 'add': c.host, 'port': c.port.toString(),
-            'id': c.uuid, 'aid': c.alterId.toString(), 'scy': c.security,
-            'net': c.network, 'type': 'none', 'host': c.wsHost, 'path': c.path,
-            'tls': c.tls, 'sni': c.sni, 'alpn': c.alpn, 'fp': c.fingerprint,
-          });
-          return 'vmess://${base64Encode(utf8.encode(j))}';
-        }(),
+        final j = json.encode({
+          'v': '2',
+          'ps': c.name,
+          'add': c.host,
+          'port': c.port.toString(),
+          'id': c.uuid,
+          'aid': c.alterId.toString(),
+          'scy': c.security,
+          'net': c.network,
+          'type': 'none',
+          'host': c.wsHost,
+          'path': c.path,
+          'tls': c.tls,
+          'sni': c.sni,
+          'alpn': c.alpn,
+          'fp': c.fingerprint,
+        });
+        return 'vmess://${base64Encode(utf8.encode(j))}';
+      }(),
       TrojanConfig c => () {
-          final params = <String, String>{
-            'security': c.security,
-            if (c.sni.isNotEmpty) 'sni': c.sni,
-            if (c.alpn.isNotEmpty) 'alpn': c.alpn,
-            if (c.fingerprint.isNotEmpty) 'fp': c.fingerprint,
-            'type': c.transport.isEmpty ? 'tcp' : c.transport,
-            if (c.path.isNotEmpty) 'path': Uri.encodeComponent(c.path),
-            if (c.transportHost.isNotEmpty) 'host': c.transportHost,
-          };
-          final q = params.entries.map((e) => '${e.key}=${e.value}').join('&');
-          return 'trojan://${c.password}@${c.host}:${c.port}?$q#${Uri.encodeComponent(c.name)}';
-        }(),
+        final params = <String, String>{
+          'security': c.security,
+          if (c.sni.isNotEmpty) 'sni': c.sni,
+          if (c.alpn.isNotEmpty) 'alpn': c.alpn,
+          if (c.fingerprint.isNotEmpty) 'fp': c.fingerprint,
+          'type': c.transport.isEmpty ? 'tcp' : c.transport,
+          if (c.path.isNotEmpty) 'path': Uri.encodeComponent(c.path),
+          if (c.transportHost.isNotEmpty) 'host': c.transportHost,
+        };
+        final q = params.entries.map((e) => '${e.key}=${e.value}').join('&');
+        return 'trojan://${c.password}@${_endpoint(c)}?$q#${Uri.encodeComponent(c.name)}';
+      }(),
       ShadowsocksConfig c => () {
-          final userInfo = base64Encode(utf8.encode('${c.method}:${c.password}'));
-          final plug = c.plugin.isNotEmpty
-              ? '/?plugin=${Uri.encodeComponent('${c.plugin};${c.pluginOpts}')}'
-              : '';
-          return 'ss://$userInfo@${c.host}:${c.port}$plug#${Uri.encodeComponent(c.name)}';
-        }(),
+        final userInfo = base64Encode(utf8.encode('${c.method}:${c.password}'));
+        final plug = c.plugin.isNotEmpty
+            ? '/?plugin=${Uri.encodeComponent('${c.plugin};${c.pluginOpts}')}'
+            : '';
+        return 'ss://$userInfo@${_endpoint(c)}$plug#${Uri.encodeComponent(c.name)}';
+      }(),
       Hysteria2Config c => () {
-          final params = <String, String>{
-            if (c.sni.isNotEmpty) 'sni': c.sni,
-            if (c.insecure) 'insecure': '1',
-            if (c.obfs.isNotEmpty) 'obfs': c.obfs,
-            if (c.obfsPassword.isNotEmpty) 'obfs-password': c.obfsPassword,
-            if (c.pinSha256.isNotEmpty) 'pinSHA256': c.pinSha256,
-            if (c.ports != null && c.ports!.isNotEmpty) 'mport': c.ports!,
-          };
-          final q = params.isEmpty ? '' : '?${params.entries.map((e) => "${e.key}=${e.value}").join("&")}';
-          return 'hy2://${c.auth}@${c.host}:${c.port}$q#${Uri.encodeComponent(c.name)}';
-        }(),
+        final params = <String, String>{
+          if (c.sni.isNotEmpty) 'sni': c.sni,
+          if (c.insecure) 'insecure': '1',
+          if (c.obfs.isNotEmpty) 'obfs': c.obfs,
+          if (c.obfsPassword.isNotEmpty) 'obfs-password': c.obfsPassword,
+          if (c.pinSha256.isNotEmpty) 'pinSHA256': c.pinSha256,
+          if (c.ports != null && c.ports!.isNotEmpty) 'mport': c.ports!,
+          if (c.hopInterval.isNotEmpty) 'hopInterval': c.hopInterval,
+        };
+        final q = params.isEmpty
+            ? ''
+            : '?${Uri(queryParameters: params).query}';
+        return 'hy2://${Uri.encodeComponent(c.auth)}@${_endpoint(c)}$q#${Uri.encodeComponent(c.name)}';
+      }(),
       TuicConfig c => () {
-          final params = <String, String>{
-            if (c.sni.isNotEmpty) 'sni': c.sni,
-            if (c.alpn.isNotEmpty) 'alpn': c.alpn,
-            if (c.congestionControl.isNotEmpty) 'congestion_control': c.congestionControl,
-            if (c.udpRelayMode.isNotEmpty) 'udp_relay_mode': c.udpRelayMode,
-            if (c.allowInsecure) 'allow_insecure': '1',
-          };
-          final q = params.isEmpty ? '' : '?${params.entries.map((e) => "${e.key}=${e.value}").join("&")}';
-          return 'tuic://${c.uuid}:${c.password}@${c.host}:${c.port}$q#${Uri.encodeComponent(c.name)}';
-        }(),
+        final params = <String, String>{
+          if (c.sni.isNotEmpty) 'sni': c.sni,
+          if (c.alpn.isNotEmpty) 'alpn': c.alpn,
+          if (c.congestionControl.isNotEmpty)
+            'congestion_control': c.congestionControl,
+          if (c.udpRelayMode.isNotEmpty) 'udp_relay_mode': c.udpRelayMode,
+          if (c.allowInsecure) 'allow_insecure': '1',
+        };
+        final q = params.isEmpty
+            ? ''
+            : '?${params.entries.map((e) => "${e.key}=${e.value}").join("&")}';
+        return 'tuic://${c.uuid}:${c.password}@${_endpoint(c)}$q#${Uri.encodeComponent(c.name)}';
+      }(),
       WireGuardConfig c => () {
-          final data = json.encode({
-            'privateKey': c.privateKey, 'publicKey': c.publicKey,
-            'presharedKey': c.presharedKey, 'addresses': c.addresses,
-            'dns': c.dns, 'mtu': c.mtu,
-            if (c.reserved != null) 'reserved': c.reserved,
-          });
-          return 'wireguard://${c.host}:${c.port}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
-        }(),
+        final data = json.encode({
+          'privateKey': c.privateKey,
+          'publicKey': c.publicKey,
+          'presharedKey': c.presharedKey,
+          'addresses': c.addresses,
+          'dns': c.dns,
+          'mtu': c.mtu,
+          if (c.reserved != null) 'reserved': c.reserved,
+        });
+        return 'wireguard://${_endpoint(c)}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
+      }(),
       AmneziaWGConfig c => () {
-          final data = json.encode({
-            'privateKey': c.privateKey, 'publicKey': c.publicKey,
-            'presharedKey': c.presharedKey, 'addresses': c.addresses,
-            'dns': c.dns, 'mtu': c.mtu,
-            if (c.reserved != null) 'reserved': c.reserved,
-            'jc': c.jc, 'jmin': c.jmin, 'jmax': c.jmax,
-            's1': c.s1, 's2': c.s2, 's3': c.s3, 's4': c.s4,
-            'h1': c.h1, 'h2': c.h2, 'h3': c.h3, 'h4': c.h4,
-          });
-          return 'awg://${c.host}:${c.port}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
-        }(),
+        final data = json.encode({
+          'privateKey': c.privateKey,
+          'publicKey': c.publicKey,
+          'presharedKey': c.presharedKey,
+          'addresses': c.addresses,
+          'dns': c.dns,
+          'mtu': c.mtu,
+          if (c.reserved != null) 'reserved': c.reserved,
+          'jc': c.jc,
+          'jmin': c.jmin,
+          'jmax': c.jmax,
+          's1': c.s1,
+          's2': c.s2,
+          's3': c.s3,
+          's4': c.s4,
+          'h1': c.h1,
+          'h2': c.h2,
+          'h3': c.h3,
+          'h4': c.h4,
+        });
+        return 'awg://${_endpoint(c)}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
+      }(),
       NaiveConfig c =>
-          '${c.scheme}://${c.username}:${c.password}@${c.host}:${c.port}#${Uri.encodeComponent(c.name)}',
+        'naive+${c.scheme}://${c.username}:${c.password}@${_endpoint(c)}#${Uri.encodeComponent(c.name)}',
       ShadowTlsConfig c => () {
-          final data = json.encode({
-            'password': c.password, 'sni': c.sni, 'version': c.version,
-            'inner': _rawLink(c.innerProxy),
-          });
-          return 'shadowtls://${c.host}:${c.port}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
-        }(),
+        final data = json.encode({
+          'password': c.password,
+          'sni': c.sni,
+          'version': c.version,
+          'inner': _rawLink(c.innerProxy),
+        });
+        return 'shadowtls://${_endpoint(c)}?config=${Uri.encodeComponent(data)}#${Uri.encodeComponent(c.name)}';
+      }(),
     };
   }
 }

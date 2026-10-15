@@ -7,6 +7,12 @@ class ParseException implements Exception {
   String toString() => 'ParseException: $message';
 }
 
+/// A recognized profile requiring features we cannot preserve. Batch imports
+/// propagate this error instead of silently replacing a group with fewer nodes.
+class UnsupportedConfigurationException extends ParseException {
+  const UnsupportedConfigurationException(super.message);
+}
+
 class UnsupportedProtocolException implements Exception {
   const UnsupportedProtocolException();
   @override

@@ -1,55 +1,79 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../app/l10n/strings.dart';
 import '../../../servers/data/models/server_profile_model.dart';
+import '../../../servers/presentation/widgets/country_presentation.dart';
 
-class ServerSelectorChip extends StatelessWidget {
+class ServerSelectorChip extends ConsumerWidget {
   final ServerProfileModel? server;
   final VoidCallback onTap;
+  final String? labelOverride;
 
-  const ServerSelectorChip({super.key, required this.server, required this.onTap});
+  const ServerSelectorChip({
+    super.key,
+    required this.server,
+    required this.onTap,
+    this.labelOverride,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
+    final s = ref.watch(stringsProvider);
+    final desktop = MediaQuery.sizeOf(context).width >= 700;
+    final current = server;
+    final country = CountryPresentation.fromName(
+      current?.name ?? '',
+      fallbackName: current?.host ?? '',
+    );
+    final title =
+        labelOverride ??
+        (current == null ? s.chooseServer : country.displayName);
+    return Semantics(
+      container: true,
+      button: true,
+      label: title,
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerHighest.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.outline.withOpacity(0.2)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.dns_outlined, size: 18),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: ExcludeSemantics(
+        child: Material(
+          key: const ValueKey('selected-server-control'),
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: desktop ? 8 : 14,
+              ),
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    server?.name.isNotEmpty == true ? server!.name : (server?.host ?? 'No server selected'),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (server != null)
-                    Text(
-                      '${server!.protocol.toUpperCase()} · ${server!.host}:${server!.port}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                  CountryFlagIcon(presentation: country),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.expand_more_rounded,
+                    size: 16,
+                    color: cs.onSurfaceVariant,
+                  ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            const Icon(Icons.chevron_right, size: 18),
-          ],
+          ),
         ),
       ),
     );

@@ -1,35 +1,14 @@
-import 'package:country_flags/country_flags.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../app/app_theme.dart';
+import '../../../../app/l10n/strings.dart';
 import '../../data/models/server_profile_model.dart';
 import '../notifiers/servers_notifier.dart';
 import 'latency_badge.dart';
-import 'protocol_chip.dart';
+import 'country_presentation.dart';
+import 'server_connection_label.dart';
 
-String _countryCode(String name) {
-  final runes = name.runes.toList();
-  if (runes.length >= 2 &&
-      runes[0] >= 0x1F1E6 && runes[0] <= 0x1F1FF &&
-      runes[1] >= 0x1F1E6 && runes[1] <= 0x1F1FF) {
-    return String.fromCharCode(runes[0] - 0x1F1E6 + 65) +
-        String.fromCharCode(runes[1] - 0x1F1E6 + 65);
-  }
-  return '';
-}
-
-String _stripFlag(String name) {
-  final runes = name.runes.toList();
-  if (runes.length >= 2 &&
-      runes[0] >= 0x1F1E6 && runes[0] <= 0x1F1FF &&
-      runes[1] >= 0x1F1E6 && runes[1] <= 0x1F1FF) {
-    var i = 2;
-    if (runes.length > i && runes[i] == 32) i++;
-    return String.fromCharCodes(runes.sublist(i));
-  }
-  return name;
-}
+enum _ServerAction { favorite, details, ping, delete }
 
 class ServerListTile extends ConsumerStatefulWidget {
   final ServerProfileModel server;
@@ -37,7 +16,6 @@ class ServerListTile extends ConsumerStatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onDelete;
   final VoidCallback onTapDetail;
-
   const ServerListTile({
     super.key,
     required this.server,
@@ -46,107 +24,232 @@ class ServerListTile extends ConsumerStatefulWidget {
     required this.onDelete,
     required this.onTapDetail,
   });
-
   @override
   ConsumerState<ServerListTile> createState() => _ServerListTileState();
 }
 
 class _ServerListTileState extends ConsumerState<ServerListTile> {
-  bool _pinging = false;
+  var _pinging = false;
+  var _favoriting = false;
+  ServerProfileModel? _menuServer;
+
+  Future<void> _setFavorite(ServerProfileModel expected) async {
+    if (_favoriting) return;
+    setState(() => _favoriting = true);
+    try {
+      final saved = await ref
+          .read(serversNotifierProvider.notifier)
+          .setFavoriteIfCurrent(expected, !expected.isFavorite);
+      if (!saved && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ref.read(stringsProvider).favoriteServerChanged),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ref.read(stringsProvider).favoriteUpdateFailed),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _favoriting = false);
+    }
+  }
 
   Future<void> _ping() async {
     if (_pinging) return;
     setState(() => _pinging = true);
-    await ref.read(serversNotifierProvider.notifier).testLatency(widget.server);
-    if (mounted) setState(() => _pinging = false);
+    try {
+      await ref
+          .read(serversNotifierProvider.notifier)
+          .testLatency(widget.server);
+    } finally {
+      if (mounted) setState(() => _pinging = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final s = ref.watch(stringsProvider);
     final server = widget.server;
-    final selected = widget.isSelected;
-    final code = _countryCode(server.name);
-    final displayName = code.isNotEmpty
-        ? _stripFlag(server.name)
-        : (server.name.isNotEmpty ? server.name : server.host);
-
-    return InkWell(
-      onTap: widget.onTap,
-      onLongPress: widget.onTapDetail,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              color: selected ? NexPalette.accent : Colors.transparent,
-              width: 3,
-            ),
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-        child: Row(
-          children: [
-            ProtocolChip(protocol: server.protocol),
-            const SizedBox(width: 8),
-            if (code.isNotEmpty) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: CountryFlag.fromCountryCode(code, height: 14, width: 20),
+    final country = CountryPresentation.fromName(
+      server.name,
+      fallbackName: server.host,
+    );
+    final name = country.displayName;
+    final pinging =
+        _pinging ||
+        ref.watch(latencyTestProgressProvider).activeIds.contains(server.id);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = MediaQuery.sizeOf(context).width >= 700;
+        return Semantics(
+          container: true,
+          button: true,
+          selected: widget.isSelected,
+          value: server.isFavorite ? s.favoriteServer : null,
+          child: InkWell(
+            onTap: widget.onTap,
+            onLongPress: widget.onTapDetail,
+            focusColor: cs.primary.withValues(alpha: 0.12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: widget.isSelected
+                    ? cs.primary.withValues(alpha: 0.065)
+                    : null,
+                borderRadius: BorderRadius.circular(7),
               ),
-              const SizedBox(width: 6),
-            ] else
-              const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: EdgeInsets.fromLTRB(
+                10,
+                desktop ? 3 : 5,
+                2,
+                desktop ? 3 : 5,
+              ),
+              child: Row(
                 children: [
-                  Text(
-                    displayName,
-                    style: TextStyle(
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                      fontSize: 15,
-                      color: cs.onSurface,
+                  CountryFlagIcon(presentation: country),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: widget.isSelected
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          ServerConnectionLabel.fromProfile(server),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(width: 8),
+                  if (server.isFavorite) ...[
+                    Tooltip(
+                      message: s.favoriteServer,
+                      excludeFromSemantics: true,
+                      child: Icon(
+                        Icons.star_rounded,
+                        size: 13,
+                        color: cs.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  if (server.protocol != 'awg')
+                    pinging
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : server.latencyMs != null
+                        ? LatencyBadge(ms: server.latencyMs!)
+                        : const SizedBox.shrink(),
+                  PopupMenuButton<_ServerAction>(
+                    key: ValueKey('server-actions-${server.id}'),
+                    tooltip: s.serverActions,
+                    style: IconButton.styleFrom(
+                      minimumSize: Size.square(desktop ? 30 : 44),
+                      maximumSize: Size.square(desktop ? 30 : 44),
+                      padding: const EdgeInsets.all(6),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: Icon(
+                      Icons.more_horiz_rounded,
+                      size: 17,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    onOpened: () => _menuServer = widget.server,
+                    onCanceled: () => _menuServer = null,
+                    onSelected: (action) {
+                      final expected = _menuServer ?? server;
+                      _menuServer = null;
+                      switch (action) {
+                        case _ServerAction.favorite:
+                          _setFavorite(expected);
+                        case _ServerAction.details:
+                          widget.onTapDetail();
+                        case _ServerAction.ping:
+                          _ping();
+                        case _ServerAction.delete:
+                          widget.onDelete();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        height: desktop ? 34 : 44,
+                        value: _ServerAction.favorite,
+                        enabled: !_favoriting,
+                        child: Row(
+                          children: [
+                            Icon(
+                              server.isFavorite
+                                  ? Icons.star_rounded
+                                  : Icons.star_outline_rounded,
+                              size: 17,
+                              color: cs.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                server.isFavorite
+                                    ? s.removeFromFavorites
+                                    : s.addToFavorites,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        height: desktop ? 34 : 44,
+                        value: _ServerAction.details,
+                        child: Text(s.serverDetails),
+                      ),
+                      if (server.protocol != 'awg')
+                        PopupMenuItem(
+                          height: desktop ? 34 : 44,
+                          value: _ServerAction.ping,
+                          enabled: !pinging,
+                          child: Text(s.pingServer),
+                        ),
+                      PopupMenuItem(
+                        height: desktop ? 34 : 44,
+                        value: _ServerAction.delete,
+                        child: Text(
+                          s.deleteButton,
+                          style: TextStyle(color: cs.error),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            if (server.protocol != 'awg')
-              SizedBox(
-                width: 52,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _pinging
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 1.5),
-                        )
-                      : GestureDetector(
-                          onTap: _ping,
-                          child: server.latencyMs != null
-                              ? LatencyBadge(ms: server.latencyMs!)
-                              : Icon(Icons.network_ping_outlined, size: 17,
-                                  color: cs.onSurfaceVariant.withOpacity(0.4)),
-                        ),
-                ),
-              )
-            else
-              const SizedBox(width: 52),
-            const SizedBox(width: 8),
-            if (selected)
-              Icon(Icons.check_circle_rounded, color: NexColors.connected, size: 18),
-            if (!selected) const SizedBox(width: 18),
-            const SizedBox(width: 6),
-            GestureDetector(
-              onTap: widget.onDelete,
-              child: Icon(Icons.close_rounded, size: 16, color: cs.onSurfaceVariant.withOpacity(0.35)),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

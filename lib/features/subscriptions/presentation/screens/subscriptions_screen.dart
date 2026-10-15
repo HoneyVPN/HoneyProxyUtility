@@ -1,249 +1,17 @@
-import 'dart:async';
-import 'dart:convert';
-
-import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:logging/logging.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/subscription_model.dart';
-import '../../../converter/data/parsers/subscription_parser.dart';
-import '../../../servers/presentation/notifiers/servers_notifier.dart';
+import '../widgets/subscription_refresh_action.dart';
+import '../../data/services/subscriptions_notifier.dart';
+import '../../domain/entities/provider_geo_state.dart';
 import '../../../../app/app_theme.dart';
+import '../../../../app/l10n/strings.dart';
+import '../../../connection/domain/entities/connection_state.dart';
+import '../../../connection/presentation/notifiers/connection_notifier.dart';
 
-final _log = Logger('SubscriptionsNotifier');
-
-const _subsKey = 'nexproxy_subscriptions';
-const _corsBase = '/proxy/?url=';
-const _defaultSubUrl = 'https://sub.honeyvpn.ru/ext/5BQLnwsNJ5nvF6dH';
-
-// ── State ────────────────────────────────────────────────────────────────────
-
-class SubscriptionsState {
-  final List<SubscriptionModel> subs;
-  final Set<int> refreshing; // ids currently being refreshed
-
-  const SubscriptionsState({this.subs = const [], this.refreshing = const {}});
-
-  SubscriptionsState copyWith({List<SubscriptionModel>? subs, Set<int>? refreshing}) =>
-      SubscriptionsState(subs: subs ?? this.subs, refreshing: refreshing ?? this.refreshing);
-
-  bool isRefreshing(int id) => refreshing.contains(id);
-}
-
-// ── Notifier ─────────────────────────────────────────────────────────────────
-
-final subscriptionsProvider =
-    AsyncNotifierProvider<SubscriptionsNotifier, SubscriptionsState>(
-  SubscriptionsNotifier.new,
-);
-
-class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
-  final _dio = Dio();
-  Timer? _autoTimer;
-
-  @override
-  Future<SubscriptionsState> build() async {
-    ref.onDispose(() { _autoTimer?.cancel(); _dio.close(force: true); });
-    var subs = await _load();
-
-    // Ensure built-in HoneyVPN subscription is always present
-    if (!subs.any((s) => s.url == _defaultSubUrl)) {
-      final nextId = subs.isEmpty ? 1 : (subs.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1);
-      final defaultSub = SubscriptionModel(
-        id: nextId,
-        url: _defaultSubUrl,
-        name: 'HoneyVPN',
-        updateIntervalHours: 24,
-      );
-      subs = [defaultSub, ...subs];
-      await _save(subs);
-      await _doRefresh(defaultSub);
-    }
-
-    _scheduleAutoRefresh();
-    for (final s in subs) {
-      if (s.needsRefresh) _doRefresh(s);
-    }
-    return SubscriptionsState(subs: subs);
-  }
-
-  void _scheduleAutoRefresh() {
-    _autoTimer?.cancel();
-    _autoTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      final current = state.value?.subs ?? [];
-      for (final s in current) {
-        if (s.needsRefresh && !(state.value?.isRefreshing(s.id) ?? false)) {
-          _doRefresh(s);
-        }
-      }
-    });
-  }
-
-  // ── Persistence ─────────────────────────────────────────────────────────
-
-  Future<List<SubscriptionModel>> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_subsKey);
-    if (raw == null) return [];
-    try {
-      return SubscriptionModel.listFromJson(raw);
-    } catch (e) {
-      _log.warning('Failed to load subscriptions from storage', e);
-      return [];
-    }
-  }
-
-  Future<void> _save(List<SubscriptionModel> list) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_subsKey, SubscriptionModel.listToJson(list));
-  }
-
-  // ── CRUD ─────────────────────────────────────────────────────────────────
-
-  Future<void> add(String url, {String name = ''}) async {
-    url = url.replaceAll('\x00', '').trim();
-    if (url.isEmpty) return;
-    final current = state.value?.subs ?? [];
-    if (current.any((s) => s.url == url)) return;
-    final model = SubscriptionModel(
-      id: DateTime.now().millisecondsSinceEpoch,
-      url: url,
-      name: name,
-    );
-    final updated = [...current, model];
-    await _save(updated);
-    state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(subs: updated));
-    await _doRefresh(model);
-  }
-
-  Future<void> delete(int id) async {
-    final current = state.value?.subs ?? [];
-    final idx = current.indexWhere((s) => s.id == id);
-    if (idx < 0) return;
-    final sub = current[idx];
-    final updated = current.where((s) => s.id != id).toList();
-    await _save(updated);
-    state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(subs: updated));
-    // Remove servers belonging to this subscription
-    await ref.read(serversNotifierProvider.notifier).deleteBySubscription(sub.url);
-  }
-
-  Future<void> setInterval(int id, int hours) async {
-    final current = state.value?.subs ?? [];
-    final updated = current.map((s) => s.id == id ? s.copyWith(updateIntervalHours: hours) : s).toList();
-    await _save(updated);
-    state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(subs: updated));
-    _scheduleAutoRefresh();
-  }
-
-  Future<void> register(String url, {String name = '', int serverCount = 0}) async {
-    final current = state.value?.subs ?? [];
-    if (current.any((s) => s.url == url)) {
-      // Already exists — just update server count
-      final updated = current.map((s) => s.url == url
-          ? s.copyWith(serverCount: serverCount, lastUpdated: DateTime.now())
-          : s).toList();
-      await _save(updated);
-      state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(subs: updated));
-      return;
-    }
-    final model = SubscriptionModel(
-      id: DateTime.now().millisecondsSinceEpoch,
-      url: url,
-      name: name,
-      serverCount: serverCount,
-      lastUpdated: DateTime.now(),
-    );
-    final updated = [...current, model];
-    await _save(updated);
-    state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(subs: updated));
-  }
-
-  Future<void> refreshAll() async {
-    final subs = List<SubscriptionModel>.of(state.value?.subs ?? []);
-    await Future.wait(subs.map<Future<void>>(_doRefresh));
-  }
-
-  Future<void> refresh(int id) async {
-    final subs = state.value?.subs ?? [];
-    final idx = subs.indexWhere((s) => s.id == id);
-    if (idx < 0) return;
-    await _doRefresh(subs[idx]);
-  }
-
-  // ── Core refresh logic ────────────────────────────────────────────────────
-
-  Future<void> _doRefresh(SubscriptionModel sub) async {
-    final st = state.value ?? const SubscriptionsState();
-    if (st.isRefreshing(sub.id)) return;
-
-    state = AsyncData(st.copyWith(refreshing: {...st.refreshing, sub.id}));
-
-    try {
-      final fetchUrl = kIsWeb ? '$_corsBase${Uri.encodeComponent(sub.url)}' : sub.url;
-      // fetchUrl for web: /proxy/?url=<encoded-url>
-      final resp = await _dio.get<String>(
-        fetchUrl,
-        options: Options(
-          responseType: ResponseType.plain,
-          receiveTimeout: const Duration(seconds: 20),
-        ),
-      );
-      final body = resp.data ?? '';
-
-      // Parse headers from subscription response
-      int? intervalFromHeader;
-      final headerInterval = resp.headers.value('profile-update-interval');
-      if (headerInterval != null) {
-        intervalFromHeader = int.tryParse(headerInterval.trim());
-      }
-
-      String? nameFromHeader;
-      final headerTitle = resp.headers.value('profile-title');
-      if (headerTitle != null) {
-        final t = headerTitle.trim();
-        if (t.startsWith('base64:')) {
-          try {
-            nameFromHeader = utf8.decode(base64.decode(t.substring(7)));
-          } catch (_) {
-            nameFromHeader = t.substring(7);
-          }
-        } else {
-          nameFromHeader = t;
-        }
-      }
-
-      final proxies = const SubscriptionParser().parse(body);
-
-      await ref.read(serversNotifierProvider.notifier)
-          .replaceSubscription(sub.url, proxies);
-
-      final current = state.value?.subs ?? [];
-      final updated = current.map((s) {
-        if (s.id != sub.id) return s;
-        return s.copyWith(
-          lastUpdated: DateTime.now(),
-          serverCount: proxies.length,
-          updateIntervalHours: intervalFromHeader ?? s.updateIntervalHours,
-          name: nameFromHeader, // null = keep existing name
-        );
-      }).toList();
-      await _save(updated);
-
-      final newRefreshing = {...(state.value?.refreshing ?? {})}..remove(sub.id);
-      state = AsyncData(SubscriptionsState(subs: updated, refreshing: newRefreshing));
-    } catch (e) {
-      _log.warning('Failed to refresh subscription ${sub.url}', e);
-      final newRefreshing = {...(state.value?.refreshing ?? {})}..remove(sub.id);
-      state = AsyncData((state.value ?? const SubscriptionsState()).copyWith(refreshing: newRefreshing));
-    }
-  }
-}
-
-// ── Screen ───────────────────────────────────────────────────────────────────
+// Keep existing provider imports source-compatible while separating data/UI.
+export '../../data/services/subscriptions_notifier.dart';
 
 class SubscriptionsScreen extends ConsumerStatefulWidget {
   const SubscriptionsScreen({super.key});
@@ -254,133 +22,359 @@ class SubscriptionsScreen extends ConsumerStatefulWidget {
 class _State extends ConsumerState<SubscriptionsScreen> {
   final _urlCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
+  final _scrollController = ScrollController();
+  _SubscriptionRowsKey? _rowsKey;
+  List<(int, String)>? _activeDragRows;
+  List<(int, String)>? _pendingDropRows;
+  int? _activeDragIndex;
+
+  void _clearDragCapture() {
+    _activeDragRows = null;
+    _pendingDropRows = null;
+    _activeDragIndex = null;
+  }
 
   @override
   void dispose() {
+    _clearDragCapture();
     _urlCtrl.dispose();
     _nameCtrl.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(subscriptionsProvider);
+    final strings = ref.watch(stringsProvider);
+    final rowsKey = async.value == null
+        ? null
+        : _SubscriptionRowsKey(async.value!.subs);
+    if (rowsKey != _rowsKey) _clearDragCapture();
+    _rowsKey = rowsKey;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Subscriptions'),
+        title: Text(strings.subscriptionsScreenTitle),
         actions: [
           if (async.value != null && (async.value!.subs.isNotEmpty))
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Refresh all',
-              onPressed: () => ref.read(subscriptionsProvider.notifier).refreshAll(),
-            ),
+            const SubscriptionRefreshAction(),
           IconButton(
             icon: const Icon(Icons.add),
+            tooltip: strings.addSubscriptionHint,
             onPressed: _showAddDialog,
           ),
         ],
       ),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (st) => st.subs.isEmpty
-            ? _EmptyState(onAdd: _showAddDialog)
-            : ListView.separated(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: st.subs.length,
-                separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
-                itemBuilder: (ctx, i) => _SubTile(
-                  sub: st.subs[i],
-                  isRefreshing: st.isRefreshing(st.subs[i].id),
-                ),
-              ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          key: const PageStorageKey<String>('subscriptions-list-scroll'),
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: async.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) =>
+                Center(child: Text(strings.subscriptionsLoadFailed)),
+            data: (st) => st.subs.isEmpty
+                ? _EmptyState(onAdd: _showAddDialog)
+                : ReorderableListView.builder(
+                    // A prior asynchronous save can change row indices during
+                    // the next drag. Reset that gesture before Flutter renders
+                    // its captured child under two keys; metadata-only updates
+                    // preserve state and the screen's scroll position persists.
+                    key: rowsKey,
+                    scrollController: _scrollController,
+                    primary: false,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    buildDefaultDragHandles: false,
+                    itemCount: st.subs.length,
+                    proxyDecorator: (child, index, animation) => Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      elevation: 3,
+                      shadowColor: Colors.black.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      child: child,
+                    ),
+                    onReorderStart: (index) {
+                      if (!mounted || rowsKey != _rowsKey) return;
+                      _clearDragCapture();
+                      if (index < 0 || index >= st.subs.length) return;
+                      _activeDragRows = List.unmodifiable(
+                        st.subs.map((sub) => (sub.id, sub.url)),
+                      );
+                      _activeDragIndex = index;
+                    },
+                    onReorderEnd: (index) {
+                      if (!mounted || rowsKey != _rowsKey) return;
+                      // End is emitted before the drop animation; the later
+                      // onReorder must still refer to the rows at drag start.
+                      // A stationary drop emits no onReorder, so retain none.
+                      _pendingDropRows = index == _activeDragIndex
+                          ? null
+                          : _activeDragRows;
+                      _activeDragRows = null;
+                      _activeDragIndex = null;
+                    },
+                    onReorder: (oldIndex, newIndex) async {
+                      if (!mounted || rowsKey != _rowsKey) return;
+                      final rows =
+                          _pendingDropRows ??
+                          st.subs.map((sub) => (sub.id, sub.url)).toList();
+                      _clearDragCapture();
+                      if (oldIndex < 0 ||
+                          oldIndex >= rows.length ||
+                          newIndex < 0 ||
+                          newIndex > rows.length)
+                        return;
+                      if (newIndex > oldIndex) newIndex--;
+                      final reordered = List.of(rows);
+                      final moved = reordered.removeAt(oldIndex);
+                      reordered.insert(newIndex, moved);
+                      try {
+                        await ref
+                            .read(subscriptionsProvider.notifier)
+                            .move(
+                              moved.$1,
+                              expectedUrl: moved.$2,
+                              beforeId: newIndex + 1 < reordered.length
+                                  ? reordered[newIndex + 1].$1
+                                  : null,
+                              expectedBeforeUrl: newIndex + 1 < reordered.length
+                                  ? reordered[newIndex + 1].$2
+                                  : null,
+                            );
+                      } catch (_) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              strings.locale == 'ru'
+                                  ? 'Не удалось сохранить порядок подписок'
+                                  : 'Could not save subscription order',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    itemBuilder: (ctx, i) => _SubTile(
+                      key: ValueKey('subscription-${st.subs[i].id}'),
+                      index: i,
+                      canReorder: st.subs.length > 1,
+                      sub: st.subs[i],
+                      failure: st.failures[st.subs[i].id],
+                    ),
+                  ),
+          ),
+        ),
       ),
     );
   }
 
   void _showAddDialog() {
+    final strings = ref.read(stringsProvider);
+    final ru = strings.locale == 'ru';
     _urlCtrl.clear();
     _nameCtrl.clear();
+    var saving = false;
+    String? saveError;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Subscription'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: 'Name (optional)'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, updateDialog) => AlertDialog(
+          title: Text(strings.addSubscriptionHint),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _nameCtrl,
+                enabled: !saving,
+                decoration: InputDecoration(
+                  labelText: ru
+                      ? 'Название (необязательно)'
+                      : 'Name (optional)',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _urlCtrl,
+                enabled: !saving,
+                decoration: InputDecoration(
+                  labelText: ru ? 'Ссылка подписки' : 'Subscription URL',
+                  errorText: saveError,
+                ),
+                keyboardType: TextInputType.url,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(strings.cancelButton),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _urlCtrl,
-              decoration: const InputDecoration(labelText: 'Subscription URL'),
-              keyboardType: TextInputType.url,
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final url = _urlCtrl.text.trim();
+                      if (url.isEmpty) return;
+                      final name = _nameCtrl.text.trim();
+                      updateDialog(() {
+                        saving = true;
+                        saveError = null;
+                      });
+                      try {
+                        await ref
+                            .read(subscriptionsProvider.notifier)
+                            .add(url, name: name);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      } catch (_) {
+                        if (!ctx.mounted) return;
+                        updateDialog(() {
+                          saving = false;
+                          saveError = strings.settingsSaveFailed;
+                        });
+                      }
+                    },
+              child: Text(saving ? strings.savingSettings : strings.addButton),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              final url = _urlCtrl.text.trim();
-              if (url.isEmpty) return;
-              Navigator.pop(ctx);
-              ref.read(subscriptionsProvider.notifier).add(url, name: _nameCtrl.text.trim());
-            },
-            child: const Text('Add & Fetch'),
-          ),
-        ],
       ),
     );
   }
+}
+
+class _SubscriptionRowsKey extends LocalKey {
+  _SubscriptionRowsKey(List<SubscriptionModel> subscriptions)
+    : _rows = List.unmodifiable(
+        subscriptions.map(
+          (subscription) => (subscription.id, subscription.url),
+        ),
+      );
+
+  final List<(int, String)> _rows;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! _SubscriptionRowsKey || _rows.length != other._rows.length) {
+      return false;
+    }
+    for (var index = 0; index < _rows.length; index++) {
+      if (_rows[index] != other._rows[index]) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hashAll(_rows);
 }
 
 // ── Sub tile ──────────────────────────────────────────────────────────────────
 
 class _SubTile extends ConsumerWidget {
   final SubscriptionModel sub;
-  final bool isRefreshing;
+  final int index;
+  final bool canReorder;
+  final SubscriptionFailure? failure;
 
-  const _SubTile({required this.sub, required this.isRefreshing});
+  const _SubTile({
+    super.key,
+    required this.sub,
+    required this.index,
+    required this.canReorder,
+    this.failure,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
-    final notifier = ref.read(subscriptionsProvider.notifier);
+    final strings = ref.watch(stringsProvider);
+    final ru = strings.locale == 'ru';
+    final serverCount = ref.watch(subscriptionServerCountProvider(sub.url));
+    final geoWarning = switch (sub.providerGeoStatus) {
+      ProviderGeoStatus.stale ||
+      ProviderGeoStatus.unavailable => strings.providerGeoWarning(
+        sub.providerGeoIssue,
+        hasLastGood: sub.providerGeo != null,
+      ),
+      _ => null,
+    };
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: NexPalette.accent.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Icon(Icons.cloud_outlined, color: NexPalette.accent, size: 20),
-      ),
-      title: Text(
-        sub.name.isNotEmpty ? sub.name : _host(sub.url),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      leading: canReorder
+          ? ReorderableDragStartListener(
+              key: ValueKey('reorder-subscription-${sub.id}'),
+              index: index,
+              child: Tooltip(
+                message: ru ? 'Изменить порядок' : 'Reorder',
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.grab,
+                  child: SizedBox(
+                    width: 32,
+                    height: 44,
+                    child: Icon(
+                      Icons.drag_handle_rounded,
+                      size: 20,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: cs.surfaceContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.cloud_outlined,
+                color: cs.onSurfaceVariant,
+                size: 18,
+              ),
+            ),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              sub.name.isNotEmpty ? sub.name : _host(sub.url),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (failure != null || geoWarning != null) ...[
+            const SizedBox(width: 6),
+            Tooltip(
+              message: failure != null
+                  ? strings.subscriptionRefreshFailureTooltip
+                  : geoWarning!,
+              child: Icon(
+                Icons.warning_rounded,
+                size: 14,
+                color: NexColors.warningFor(cs.brightness),
+              ),
+            ),
+          ],
+        ],
       ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             sub.lastUpdated != null
-                ? '${sub.serverCount} servers · ${_ago(sub.lastUpdated!)}'
-                : 'Never updated',
+                ? '${_countLabel(serverCount, ru)} · ${_ago(sub.lastUpdated!, ru)}'
+                : (ru ? 'Ещё не обновлялась' : 'Never updated'),
             style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
           ),
           if (sub.updateIntervalHours > 0)
             Text(
-              'Auto-update every ${sub.updateIntervalHours}h',
-              style: TextStyle(fontSize: 11, color: NexPalette.accent),
+              ru
+                  ? 'Каждые ${sub.updateIntervalHours} ч'
+                  : 'Every ${sub.updateIntervalHours}h',
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
             ),
         ],
       ),
@@ -391,22 +385,12 @@ class _SubTile extends ConsumerWidget {
           _IntervalButton(sub: sub),
           const SizedBox(width: 4),
           // Refresh button
-          isRefreshing
-              ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  onPressed: () => notifier.refresh(sub.id),
-                  tooltip: 'Refresh',
-                ),
+          SubscriptionRefreshAction(subscriptionId: sub.id, size: 20),
           // Delete button
           IconButton(
             icon: Icon(Icons.delete_outline, size: 20, color: cs.error),
             onPressed: () => _confirmDelete(context, ref),
-            tooltip: 'Delete',
+            tooltip: strings.deleteButton,
           ),
         ],
       ),
@@ -414,20 +398,60 @@ class _SubTile extends ConsumerWidget {
   }
 
   void _confirmDelete(BuildContext ctx, WidgetRef ref) {
+    final serverCount = ref.read(subscriptionServerCountProvider(sub.url));
+    final strings = ref.read(stringsProvider);
+    final ru = strings.locale == 'ru';
     showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
-        title: const Text('Delete subscription?'),
-        content: Text('Also removes all ${sub.serverCount} servers from this subscription.'),
+        title: Text(ru ? 'Удалить подписку?' : 'Delete subscription?'),
+        content: Text(
+          ru
+              ? 'Также будут удалены все серверы этой подписки: $serverCount.'
+              : 'Also removes all $serverCount servers from this subscription.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(strings.cancelButton),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: NexColors.error),
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(c);
-              ref.read(subscriptionsProvider.notifier).delete(sub.id);
+              final connection = ref.read(connectionNotifierProvider);
+              if (connection.activeServer?.subscriptionId == sub.url) {
+                try {
+                  await ref
+                      .read(connectionNotifierProvider.notifier)
+                      .disconnect();
+                } catch (_) {
+                  if (!ctx.mounted) return;
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text(strings.vpnStopFailed)),
+                  );
+                  return;
+                }
+                if (!ctx.mounted) return;
+                if (ref.read(connectionNotifierProvider).status !=
+                    ConnectionStatus.disconnected) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text(strings.vpnStopFailed)),
+                  );
+                  return;
+                }
+              }
+              if (!ctx.mounted) return;
+              try {
+                await ref.read(subscriptionsProvider.notifier).delete(sub.id);
+              } catch (_) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text(strings.settingsSaveFailed)),
+                );
+              }
             },
-            child: const Text('Delete'),
+            child: Text(strings.deleteButton),
           ),
         ],
       ),
@@ -435,15 +459,32 @@ class _SubTile extends ConsumerWidget {
   }
 
   static String _host(String url) {
-    try { return Uri.parse(url).host; } catch (_) { return url; }
+    try {
+      return Uri.parse(url).host;
+    } catch (_) {
+      return url;
+    }
   }
 
-  static String _ago(DateTime d) {
+  static String _ago(DateTime d, bool ru) {
     final diff = DateTime.now().difference(d);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
+    if (diff.inMinutes < 1) return ru ? 'только что' : 'just now';
+    if (diff.inMinutes < 60)
+      return ru ? '${diff.inMinutes} мин назад' : '${diff.inMinutes}m ago';
+    if (diff.inHours < 24)
+      return ru ? '${diff.inHours} ч назад' : '${diff.inHours}h ago';
+    return ru ? '${diff.inDays} дн назад' : '${diff.inDays}d ago';
+  }
+
+  static String _countLabel(int count, bool ru) {
+    if (!ru) return '$count server${count == 1 ? '' : 's'}';
+    final lastTwo = count % 100;
+    if (lastTwo >= 11 && lastTwo <= 14) return '$count серверов';
+    return switch (count % 10) {
+      1 => '$count сервер',
+      2 || 3 || 4 => '$count сервера',
+      _ => '$count серверов',
+    };
   }
 }
 
@@ -453,44 +494,67 @@ class _IntervalButton extends ConsumerWidget {
   final SubscriptionModel sub;
   const _IntervalButton({required this.sub});
 
-  static const _options = [
-    (0, 'Manual'),
-    (1, 'Every 1h'),
-    (6, 'Every 6h'),
-    (12, 'Every 12h'),
-    (24, 'Every 24h'),
-  ];
+  static const _options = [0, 1, 6, 12, 24];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
+    final strings = ref.watch(stringsProvider);
+    final ru = strings.locale == 'ru';
     return PopupMenuButton<int>(
-      tooltip: 'Auto-update interval',
+      tooltip: ru ? 'Период обновления' : 'Auto-update interval',
       initialValue: sub.updateIntervalHours,
-      onSelected: (h) => ref.read(subscriptionsProvider.notifier).setInterval(sub.id, h),
-      itemBuilder: (_) => _options.map((o) => PopupMenuItem(
-        value: o.$1,
-        child: Row(
-          children: [
-            Icon(
-              o.$1 == 0 ? Icons.timer_off_outlined : Icons.timer_outlined,
-              size: 16,
-              color: sub.updateIntervalHours == o.$1 ? NexPalette.accent : cs.onSurface,
-            ),
-            const SizedBox(width: 8),
-            Text(o.$2),
-          ],
-        ),
-      )).toList(),
+      onSelected: (h) async {
+        try {
+          await ref.read(subscriptionsProvider.notifier).setInterval(sub.id, h);
+        } catch (_) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(strings.settingsSaveFailed)));
+        }
+      },
+      itemBuilder: (_) =>
+          ({..._options, sub.updateIntervalHours}.toList()..sort())
+              .map(
+                (o) => PopupMenuItem(
+                  height: MediaQuery.sizeOf(context).width >= 700 ? 34 : 44,
+                  value: o,
+                  child: Row(
+                    children: [
+                      Icon(
+                        o == 0
+                            ? Icons.timer_off_outlined
+                            : Icons.timer_outlined,
+                        size: 16,
+                        color: sub.updateIntervalHours == o
+                            ? NexPalette.accent
+                            : cs.onSurface,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        o == 0
+                            ? (ru ? 'Вручную' : 'Manual')
+                            : (ru ? 'Каждые $o ч' : 'Every ${o}h'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              sub.updateIntervalHours > 0 ? Icons.timer_outlined : Icons.timer_off_outlined,
+              sub.updateIntervalHours > 0
+                  ? Icons.timer_outlined
+                  : Icons.timer_off_outlined,
               size: 18,
-              color: sub.updateIntervalHours > 0 ? NexPalette.accent : cs.onSurfaceVariant,
+              color: sub.updateIntervalHours > 0
+                  ? NexPalette.accent
+                  : cs.onSurfaceVariant,
             ),
             const SizedBox(width: 2),
             Icon(Icons.arrow_drop_down, size: 16, color: cs.onSurfaceVariant),
@@ -503,26 +567,39 @@ class _IntervalButton extends ConsumerWidget {
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends ConsumerWidget {
   final VoidCallback onAdd;
   const _EmptyState({required this.onAdd});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(stringsProvider);
+    final ru = strings.locale == 'ru';
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_off_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 32,
+            color: Theme.of(context).colorScheme.outline,
+          ),
           const SizedBox(height: 16),
-          const Text('No subscriptions yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          Text(
+            ru ? 'Подписок пока нет' : 'No subscriptions yet',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 8),
-          const Text('Add a V2Ray, Clash or sing-box subscription URL'),
-          const SizedBox(height: 24),
+          Text(
+            ru
+                ? 'Добавьте ссылку от VPN-сервиса.'
+                : 'Add a link from your VPN provider.',
+          ),
+          const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: onAdd,
             icon: const Icon(Icons.add),
-            label: const Text('Add Subscription'),
+            label: Text(strings.addSubscriptionHint),
           ),
         ],
       ),

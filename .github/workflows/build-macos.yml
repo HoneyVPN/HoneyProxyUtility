@@ -1,0 +1,60 @@
+name: macOS UI preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-ui-preview:
+    if: github.repository == 'HoneyVPN/honeyproxyutility-'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.7'
+          channel: stable
+          cache: true
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Validate unavailable-core foundation
+        run: python3 scripts/validate_apple_foundation.py
+      - name: Prepare Flutter and CocoaPods configuration
+        run: flutter build macos --release --config-only --no-pub
+      - name: Compile unsigned host and packet provider
+        run: |
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \
+            -configuration Release -derivedDataPath build/macos-ui-preview \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Check native dual-stack settings mapping
+        run: |
+          swiftc macos/HoneyProxyPacketTunnel/TunnelNetworkSettingsMapper.swift test/native/apple_tunnel_settings_check.swift -o "$RUNNER_TEMP/apple-settings-check"
+          "$RUNNER_TEMP/apple-settings-check"
+          swiftc macos/HoneyProxyPacketTunnel/TunnelSettingsCoordinator.swift test/native/apple_settings_lifecycle_check.swift -o "$RUNNER_TEMP/apple-lifecycle-check"
+          "$RUNNER_TEMP/apple-lifecycle-check"
+          swiftc macos/Shared/OwnedSessionConfiguration.swift test/native/apple_session_cleanup_check.swift -o "$RUNNER_TEMP/apple-session-check"
+          "$RUNNER_TEMP/apple-session-check"
+          swiftc -swift-version 5 macos/Runner/AppleVpnStatusSnapshot.swift test/native/apple_status_snapshot_check.swift -o "$RUNNER_TEMP/apple-status-check"
+          "$RUNNER_TEMP/apple-status-check"
+          swiftc -swift-version 5 macos/HoneyProxyPacketTunnel/AppleProviderStatus.swift test/native/apple_provider_status_check.swift -o "$RUNNER_TEMP/apple-counter-check"
+          "$RUNNER_TEMP/apple-counter-check"
+          swiftc -swift-version 5 macos/Shared/DevelopmentVpnGate.swift test/native/apple_development_gate_check.swift -o "$RUNNER_TEMP/apple-release-gate-check"
+          "$RUNNER_TEMP/apple-release-gate-check"
+          swiftc -swift-version 5 -D DEBUG -D HONEYPROXY_DEVELOPMENT_VPN macos/Shared/DevelopmentVpnGate.swift test/native/apple_development_gate_check.swift -o "$RUNNER_TEMP/apple-development-gate-check"
+          "$RUNNER_TEMP/apple-development-gate-check"
+      - name: Package UI preview — VPN unavailable
+        run: |
+          mkdir -p build/preview-artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos-ui-preview/Build/Products/Release/HoneyProxyUtility.app \
+            build/preview-artifacts/HoneyProxyUtility-macOS-ui-preview-no-VPN.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-ui-preview-no-VPN
+          path: build/preview-artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 14

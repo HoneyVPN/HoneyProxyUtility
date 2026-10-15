@@ -1,18 +1,15 @@
 name: Build Android
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-android:
     runs-on: ubuntu-latest
-    if: github.repository == 'HoneyVPN/honeyproxyutility-'
+    if: github.repository == 'HoneyVPN/honeyproxyutility-' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +28,14 @@ jobs:
           cache: true
 
       - name: Get dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
+
+      - name: Prepare and verify the effective Android cores
+        run: python3 -B scripts/prepare_android_cores.py --cache-dir build/android-core-cache --download
+
+      - name: Validate release version
+        id: metadata
+        run: python3 scripts/release_metadata.py
 
       - name: Decode keystore
         run: |
@@ -43,35 +47,45 @@ jobs:
           storeFile=../upload-keystore.jks
           EOF
 
-      # ── direct flavor: split APKs for self-distribution ──────────────────
-      - name: Build APK — direct flavor (arm64 + armeabi-v7a + x86_64)
+      # A single universal APK also works with the 1.1.21 updater, which
+      # selected ARM64 even on other architectures whenever a split was present.
+      - name: Build universal APK — ARMv7, ARM64 and x86_64
         run: |
-          flutter build apk --flavor direct --release --split-per-abi \
+          flutter build apk --flavor direct --release \
+            --target-platform android-arm,android-arm64,android-x64 \
             --dart-define=FLAVOR=direct
 
-      - name: Rename APKs
+      - name: Check Android session ownership and child lifecycle
+        run: python3 -B scripts/check_android_lifecycle.py
+
+      - name: Name and verify the only distributable APK
         run: |
-          TAG=${{ github.ref_name }}
+          TAG="v${{ steps.metadata.outputs.version }}"
           outdir="build/app/outputs/flutter-apk"
-          mkdir -p "$outdir"
-          mapfile -t files < <(find build/app/outputs -name "app-direct-*-release.apk" 2>/dev/null)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "ERROR: No APKs found. Build tree:"
-            find build/app/outputs -name "*.apk" 2>/dev/null || echo "(none)"
-            exit 1
-          fi
-          for f in "${files[@]}"; do
-            base=$(basename "$f" .apk)
-            mv "$f" "$outdir/HoneyProxyUtility-${TAG}-${base#app-direct-}.apk"
-          done
+          mv "$outdir/app-direct-release.apk" "$outdir/HoneyProxyUtility-${TAG}-universal.apk"
+          tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          python3 -B scripts/validate_android_release_apk.py \
+            --apk "$outdir/HoneyProxyUtility-${TAG}-universal.apk" \
+            --build-tools "$tools" \
+            --java "$JAVA_HOME/bin/java" \
+            --strip-tool "$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
+            --receipt "$outdir/android-release-verification.json"
+
+      - name: Upload preview artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoneyProxyUtility-Android-${{ steps.metadata.outputs.version }}
+          path: build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Deploy APK to honeyvpn.ru
+        # Publication is disabled here; release both reviewed assets separately.
+        if: ${{ false }}
         run: |
-          TAG=${{ github.ref_name }}
-          APK=$(ls build/app/outputs/flutter-apk/HoneyProxyUtility-*arm64*.apk 2>/dev/null | head -1)
-          if [ -z "$APK" ]; then
-            APK=$(ls build/app/outputs/flutter-apk/HoneyProxyUtility-*.apk 2>/dev/null | head -1)
-          fi
+          TAG="v${{ steps.metadata.outputs.version }}"
+          APK="build/app/outputs/flutter-apk/HoneyProxyUtility-${TAG}-universal.apk"
+          test -f "$APK"
           if [ -n "$APK" ]; then
             curl -X POST https://api.honeyvpn.ru/deploy/android \
               -H "X-Deploy-Token: ${{ secrets.DEPLOY_TOKEN }}" \
@@ -81,7 +95,8 @@ jobs:
           fi
 
       - name: Create GitHub Release (public repo)
-        if: startsWith(github.ref, 'refs/tags/')
+        # Publication is disabled here; release both reviewed assets separately.
+        if: ${{ false }}
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.PUBLIC_REPO_PAT }}
@@ -94,15 +109,15 @@ jobs:
             ## HoneyProxyUtility ${{ github.ref_name }} — Android
 
             ### Поддерживаемые протоколы
-            VLESS Reality · VLESS xHTTP · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard · **AmneziaWG** · NaiveProxy · ShadowTLS
+            VLESS Reality · VLESS xHTTP · VMess · Trojan · Shadowsocks · Hysteria2 · TUIC · WireGuard · **AmneziaWG** · ShadowTLS + Shadowsocks
+
+            NaiveProxy доступен для импорта и конвертации. Подключение в текущей сборке ядра недоступно.
 
             ### Скачать APK
-            - **arm64-v8a** (большинство современных телефонов)
-            - **armeabi-v7a** (старые телефоны)
-            - **x86_64** (эмуляторы)
+            Один **universal APK**: armeabi-v7a, arm64-v8a и x86_64.
+            One **universal APK** supports ARMv7, ARM64 and x86_64.
 
             ### Установка
-            1. Скачай APK под свой процессор
-            2. Разреши установку из неизвестных источников
-            3. Установи и добавь подписку через @honeyvpnru_bot
-
+            1. Скачай universal APK / Download the universal APK
+            2. Разреши установку из этого источника / Allow installation from this source
+            3. Установи и добавь подписку через @honeyvpnru_bot / Install and import your subscription

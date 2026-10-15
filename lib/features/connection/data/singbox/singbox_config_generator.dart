@@ -2,13 +2,50 @@ import 'dart:convert';
 
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../settings/data/models/app_settings.dart';
+import 'provider_geo_bundle.dart';
+
+enum SingboxConfigTarget { android, apple }
 
 class SingboxConfigGenerator {
   /// [geoPaths] — map of filename → absolute path from [GeoDataManager.ensureReady].
   /// If null or a key is missing, falls back to remote download.
-  const SingboxConfigGenerator({this.geoPaths});
+  const SingboxConfigGenerator({
+    this.geoPaths,
+    this.providerRouting,
+    this.target = SingboxConfigTarget.android,
+  });
 
   final Map<String, String>? geoPaths;
+  final ProviderGeoBundle? providerRouting;
+  final SingboxConfigTarget target;
+
+  /// Validate target-specific fields before native or geodata preparation.
+  void validateTargetCompatibility(ParsedProxy proxy) {
+    switch (proxy) {
+      case WireGuardConfig c:
+        _peerReserved(c.reserved);
+      case AmneziaWGConfig c:
+        _peerReserved(c.reserved);
+      default:
+        break;
+    }
+  }
+
+  Map<String, dynamic> _peerReserved(List<int>? reserved) {
+    // Android 1.14 removed packet-byte rewriting. Omit only values with no
+    // effect; retain the imported profile for Apple's existing 1.13 core.
+    if (target == SingboxConfigTarget.apple) {
+      return {if (reserved != null) 'reserved': reserved};
+    }
+    if (reserved != null &&
+        reserved.isNotEmpty &&
+        (reserved.length != 3 || reserved.any((byte) => byte != 0))) {
+      throw UnsupportedError(
+        'WireGuard reserved bytes are unsupported by this Android core.',
+      );
+    }
+    return const {};
+  }
 
   Map<String, dynamic> _log(AppSettings s) => {
     'level': s.logLevel.name,
@@ -20,25 +57,27 @@ class SingboxConfigGenerator {
     // TLS connections get EOF through many proxy servers, causing the "read response: EOF"
     // errors visible in sing-box logs. DoH over HTTP/2 is more reliable through proxies.
     final remoteDnsServer = switch (s.dnsPreset) {
-      DnsPreset.cloudflare => {'type': 'https', 'server': '1.1.1.1', 'path': '/dns-query'},
-      DnsPreset.google     => {'type': 'https', 'server': '8.8.8.8', 'path': '/dns-query'},
-      DnsPreset.adguard    => {'type': 'https', 'server': '94.140.14.14', 'path': '/dns-query'},
-      DnsPreset.custom     => _parseDnsAddress(s.customDnsUrl),
+      DnsPreset.cloudflare => {
+        'type': 'https',
+        'server': '1.1.1.1',
+        'path': '/dns-query',
+      },
+      DnsPreset.google => {
+        'type': 'https',
+        'server': '8.8.8.8',
+        'path': '/dns-query',
+      },
+      DnsPreset.adguard => {
+        'type': 'https',
+        'server': '94.140.14.14',
+        'path': '/dns-query',
+      },
+      DnsPreset.custom => _parseDnsAddress(s.customDnsUrl),
     };
-
-    final rules = <Map<String, dynamic>>[];
-    if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
-      rules.add({'rule_set': 'ru', 'server': 'local-dns'});
-    }
 
     return {
       'servers': [
-        {
-          'tag': 'remote-dns',
-          ...remoteDnsServer,
-          'detour': 'proxy',
-          'domain_strategy': _ipStrategy(s.preferredIpType),
-        },
+        {'tag': 'remote-dns', ...remoteDnsServer, 'detour': 'proxy'},
         {
           'tag': 'local-dns',
           'type': 'https',
@@ -46,63 +85,100 @@ class SingboxConfigGenerator {
           'path': '/dns-query',
           'detour': 'direct',
         },
-        if (s.enableFakeip) {
-          'tag': 'fakeip-dns',
-          'type': 'fakeip',
-          'inet4_range': '198.18.0.0/15',
-          'inet6_range': 'fc00::/18',
-        },
+        if (s.enableFakeip)
+          {
+            'tag': 'fakeip-dns',
+            'type': 'fakeip',
+            'inet4_range': '198.18.0.0/15',
+            'inet6_range': 'fc00::/18',
+          },
       ],
       'rules': [
-        ...rules,
-        if (s.enableFakeip) {'query_type': ['A', 'AAAA'], 'server': 'fakeip-dns'},
+        // The bundled Russia set contains only IP ranges. A DNS rule using it
+        // selects a transport before addresses exist, so it would send every
+        // first A/AAAA query to local-dns. Keep it in traffic routing only.
+        if (s.enableFakeip)
+          {
+            'query_type': ['A', 'AAAA'],
+            'server': 'fakeip-dns',
+          },
       ],
       'final': 'remote-dns',
+      'strategy': _ipStrategy(s.preferredIpType),
       'independent_cache': true,
     };
   }
 
   Map<String, dynamic> _parseDnsAddress(String url) {
-    if (!_isValidDnsUrl(url)) return {'type': 'tls', 'server': '1.1.1.1'};
-    try {
-      final uri = Uri.parse(url);
-      if (uri.scheme == 'https') {
-        return {
-          'type': 'https',
-          'server': uri.host,
-          'path': uri.path.isEmpty ? '/dns-query' : uri.path,
-        };
-      }
-      return {'type': 'tls', 'server': uri.host.isEmpty ? '1.1.1.1' : uri.host};
-    } catch (_) {
-      return {'type': 'tls', 'server': '1.1.1.1'};
+    final issue = AppSettings.customDnsIssue(url);
+    if (issue != null) throw SettingsValidationException(issue);
+    final uri = Uri.parse(url.trim());
+    if (uri.scheme == 'https') {
+      return {
+        'type': 'https',
+        'server': uri.host,
+        if (uri.hasPort) 'server_port': uri.port,
+        'path': uri.path.isEmpty ? '/dns-query' : uri.path,
+      };
     }
+    return {
+      'type': 'tls',
+      'server': uri.host,
+      if (uri.hasPort) 'server_port': uri.port,
+    };
   }
 
   Map<String, dynamic> _outbound(ParsedProxy proxy) => switch (proxy) {
-    VlessConfig c   => _vless(c),
-    VmessConfig c   => _vmess(c),
-    TrojanConfig c  => _trojan(c),
+    VlessConfig c => _vless(c),
+    VmessConfig c => _vmess(c),
+    TrojanConfig c => _trojan(c),
     ShadowsocksConfig c => _shadowsocks(c),
     Hysteria2Config c => _hysteria2(c),
-    TuicConfig c    => _tuic(c),
-    WireGuardConfig c => _wireguard(c),
-    AmneziaWGConfig _ => throw UnsupportedError('AWG uses endpoint, not outbound'),
-    NaiveConfig c   => _naive(c),
+    TuicConfig c => _tuic(c),
+    WireGuardConfig _ => throw UnsupportedError(
+      'WireGuard uses endpoint, not outbound',
+    ),
+    AmneziaWGConfig _ => throw UnsupportedError(
+      'AWG uses endpoint, not outbound',
+    ),
+    NaiveConfig _ => throw UnsupportedError(
+      'NaiveProxy is unavailable in this core build',
+    ),
     ShadowTlsConfig c => _shadowtls(c),
   };
 
-  Map<String, dynamic> _vless(VlessConfig c) => {
-    'type': 'vless',
-    'tag': 'proxy',
-    'server': c.host,
-    'server_port': c.port,
-    'uuid': c.uuid,
-    if (c.flow.isNotEmpty) 'flow': c.flow,
-    ..._tlsBlock(c.security, c.sni, c.fingerprint, pbk: c.publicKey, sid: c.shortId),
-    if (c.transport != 'tcp') 'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName, c.xhttpMode, c.xPaddingBytes),
-    'packet_encoding': 'xudp',
-  };
+  Map<String, dynamic> _vless(VlessConfig c) {
+    c.validateCoreCompatibility();
+    return {
+      'type': 'vless',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'uuid': c.uuid,
+      if (c.encryption.isNotEmpty && c.encryption != 'none')
+        'encryption': c.encryption,
+      if (c.flow.isNotEmpty) 'flow': c.flow,
+      ..._tlsBlock(
+        c.security,
+        c.sni,
+        c.effectiveFingerprint,
+        pbk: c.publicKey,
+        sid: c.shortId,
+        alpn: c.effectiveAlpn.join(','),
+        allowInsecure: c.allowInsecure,
+      ),
+      if (c.transport != 'tcp')
+        'transport': _transport(
+          c.transport,
+          c.path,
+          c.transportHost,
+          c.grpcServiceName,
+          c.xhttpMode,
+          c.xPaddingBytes,
+        ),
+      'packet_encoding': 'xudp',
+    };
+  }
 
   Map<String, dynamic> _vmess(VmessConfig c) => {
     'type': 'vmess',
@@ -113,7 +189,8 @@ class SingboxConfigGenerator {
     'alter_id': c.alterId,
     'security': c.security,
     if (c.tls == 'tls') ..._tlsBlock('tls', c.sni, c.fingerprint),
-    if (c.network != 'tcp') 'transport': _transport(c.network, c.path, c.wsHost, ''),
+    if (c.network != 'tcp')
+      'transport': _transport(c.network, c.path, c.wsHost, ''),
     'packet_encoding': 'xudp',
   };
 
@@ -124,7 +201,8 @@ class SingboxConfigGenerator {
     'server_port': c.port,
     'password': c.password,
     ..._tlsBlock(c.security, c.sni, c.fingerprint, alpn: c.alpn),
-    if (c.transport != 'tcp') 'transport': _transport(c.transport, c.path, c.transportHost, ''),
+    if (c.transport != 'tcp')
+      'transport': _transport(c.transport, c.path, c.transportHost, ''),
   };
 
   Map<String, dynamic> _shadowsocks(ShadowsocksConfig c) => {
@@ -139,23 +217,25 @@ class SingboxConfigGenerator {
     'udp_over_tcp': false,
   };
 
-  Map<String, dynamic> _hysteria2(Hysteria2Config c) => {
-    'type': 'hysteria2',
-    'tag': 'proxy',
-    'server': c.host,
-    'server_port': c.port,
-    if (c.auth.isNotEmpty) 'password': c.auth,
-    'tls': {
-      'enabled': true,
-      if (c.sni.isNotEmpty) 'server_name': c.sni,
-      'insecure': c.insecure,
-      if (c.pinSha256.isNotEmpty) 'pinned_peer_certificate_chain_sha256': [c.pinSha256],
-    },
-    if (c.obfs.isNotEmpty) 'obfs': {
-      'type': c.obfs,
-      'password': c.obfsPassword,
-    },
-  };
+  Map<String, dynamic> _hysteria2(Hysteria2Config c) {
+    c.validateCoreCompatibility();
+    return {
+      'type': 'hysteria2',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      if (c.serverPorts.isNotEmpty) 'server_ports': c.serverPorts,
+      if (c.hopInterval.isNotEmpty) 'hop_interval': c.hopInterval,
+      if (c.auth.isNotEmpty) 'password': c.auth,
+      'tls': {
+        'enabled': true,
+        if (c.sni.isNotEmpty) 'server_name': c.sni,
+        'insecure': c.insecure,
+      },
+      if (c.obfs.isNotEmpty)
+        'obfs': {'type': c.obfs, 'password': c.obfsPassword},
+    };
+  }
 
   Map<String, dynamic> _tuic(TuicConfig c) => {
     'type': 'tuic',
@@ -174,29 +254,38 @@ class SingboxConfigGenerator {
     },
   };
 
-  Map<String, dynamic> _wireguard(WireGuardConfig c) => {
+  // The legacy WireGuard outbound was removed in sing-box 1.13. The
+  // endpoint preserves standard WireGuard semantics without AWG obfuscation.
+  Map<String, dynamic> _wireguardEndpoint(WireGuardConfig c) => {
     'type': 'wireguard',
     'tag': 'proxy',
-    'server': c.host,
-    'server_port': c.port,
+    'system': false,
+    'address': c.addresses,
     'private_key': c.privateKey,
-    'peer_public_key': c.publicKey,
-    if (c.presharedKey.isNotEmpty) 'pre_shared_key': c.presharedKey,
-    'local_address': c.addresses,
-    if (c.reserved != null) 'reserved': c.reserved,
+    'listen_port': 0,
     'mtu': c.mtu,
+    'peers': [
+      {
+        'address': c.host,
+        'port': c.port,
+        'public_key': c.publicKey,
+        'allowed_ips': ['0.0.0.0/0', '::/0'],
+        if (c.presharedKey.isNotEmpty) 'pre_shared_key': c.presharedKey,
+        ..._peerReserved(c.reserved),
+      },
+    ],
   };
 
-  // AmneziaWG uses the `endpoints` array, not outbounds — built via _generateForAmneziaWG.
+  // AmneziaWG also uses endpoints, with its separate obfuscation options.
   Map<String, dynamic> _amneziaWGEndpoint(AmneziaWGConfig c) {
     final peer = <String, dynamic>{
       'address': c.host,
       'port': c.port,
       'public_key': c.publicKey,
       'allowed_ips': ['0.0.0.0/0', '::/0'],
+      ..._peerReserved(c.reserved),
     };
     if (c.presharedKey.isNotEmpty) peer['pre_shared_key'] = c.presharedKey;
-    if (c.reserved != null) peer['reserved'] = c.reserved;
 
     final amnezia = <String, dynamic>{
       'jc': c.jc,
@@ -224,30 +313,28 @@ class SingboxConfigGenerator {
     };
   }
 
-  Map<String, dynamic> _naive(NaiveConfig c) => {
-    'type': 'http',
-    'tag': 'proxy',
-    'server': c.host,
-    'server_port': c.port,
-    'username': c.username,
-    'password': c.password,
-    'tls': {'enabled': true},
-  };
-
-  // ShadowTLS outer outbound; the inner outbound is added separately in generate()
+  // ShadowTLS supplies transport for the inner Shadowsocks protocol. Traffic
+  // enters the inner proxy, whose detour points to this outer TLS transport.
   Map<String, dynamic> _shadowtls(ShadowTlsConfig c) => {
     'type': 'shadowtls',
-    'tag': 'proxy',
+    'tag': 'shadowtls-out',
     'server': c.host,
     'server_port': c.port,
     'version': c.version,
     'password': c.password,
-    'tls': {
-      'enabled': true,
-      if (c.sni.isNotEmpty) 'server_name': c.sni,
-    },
-    'detour': 'shadowtls-inner',
+    'tls': {'enabled': true, if (c.sni.isNotEmpty) 'server_name': c.sni},
   };
+
+  List<Map<String, dynamic>> _proxyOutbounds(ParsedProxy proxy) {
+    if (proxy is! ShadowTlsConfig) return [_outbound(proxy)];
+    if (proxy.innerProxy is! ShadowsocksConfig) {
+      throw UnsupportedError('ShadowTLS requires a Shadowsocks inner proxy');
+    }
+    final inner = _outbound(proxy.innerProxy);
+    inner['tag'] = 'proxy';
+    inner['detour'] = 'shadowtls-out';
+    return [inner, _shadowtls(proxy)];
+  }
 
   Map<String, dynamic> _tlsBlock(
     String security,
@@ -256,25 +343,30 @@ class SingboxConfigGenerator {
     String pbk = '',
     String sid = '',
     String alpn = '',
+    bool allowInsecure = false,
   }) {
     if (security == 'none' || security.isEmpty) return {};
     final tls = <String, dynamic>{
       'enabled': true,
       if (sni.isNotEmpty) 'server_name': sni,
       if (alpn.isNotEmpty) 'alpn': alpn.split(','),
+      if (allowInsecure) 'insecure': true,
       if (fp.isNotEmpty) 'utls': {'enabled': true, 'fingerprint': fp},
     };
     if (security == 'reality') {
-      tls['reality'] = {
-        'enabled': true,
-        'public_key': pbk,
-        'short_id': sid,
-      };
+      tls['reality'] = {'enabled': true, 'public_key': pbk, 'short_id': sid};
     }
     return {'tls': tls};
   }
 
-  Map<String, dynamic> _transport(String type, String path, String host, String serviceName, [String mode = '', String xPadding = '']) {
+  Map<String, dynamic> _transport(
+    String type,
+    String path,
+    String host,
+    String serviceName, [
+    String mode = '',
+    String xPadding = '',
+  ]) {
     switch (type) {
       case 'ws':
       case 'websocket':
@@ -305,7 +397,7 @@ class SingboxConfigGenerator {
           'type': 'xhttp',
           if (path.isNotEmpty) 'path': path,
           if (host.isNotEmpty) 'host': host,
-          if (mode.isNotEmpty) 'mode': mode,
+          'mode': mode.isEmpty ? 'auto' : mode,
           'x_padding_bytes': xPadding.isNotEmpty ? xPadding : '100-1000',
         };
       case 'httpupgrade':
@@ -324,9 +416,15 @@ class SingboxConfigGenerator {
   Map<String, dynamic> _ruleSet(String tag, String filename) {
     final localPath = geoPaths?[filename];
     if (localPath != null) {
-      return {'type': 'local', 'tag': tag, 'format': 'binary', 'path': localPath};
+      return {
+        'type': 'local',
+        'tag': tag,
+        'format': 'binary',
+        'path': localPath,
+      };
     }
-    const base = 'https://github.com/runetfreedom/russia-blocked-geoip/raw/release/srs';
+    const base =
+        'https://github.com/runetfreedom/russia-blocked-geoip/raw/release/srs';
     const adBase = 'https://github.com/SagerNet/sing-geosite/raw/rule-set';
     final url = filename == 'geosite-category-ads-all.srs'
         ? '$adBase/$filename'
@@ -341,16 +439,6 @@ class SingboxConfigGenerator {
     };
   }
 
-  static bool _isValidDnsUrl(String url) {
-    if (url.isEmpty) return false;
-    try {
-      final uri = Uri.parse(url);
-      return uri.hasScheme && uri.host.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
-
   String _ipStrategy(IpType t) => switch (t) {
     IpType.ipv4 => 'ipv4_only',
     IpType.ipv6 => 'ipv6_only',
@@ -363,17 +451,16 @@ class SingboxConfigGenerator {
   /// Minimal config for latency testing: no TUN, no inbounds.
   /// sing-box runs as a plain process; Clash API is used to drive the delay test.
   String generateForPing(ParsedProxy proxy, int apiPort) {
-    if (proxy is AmneziaWGConfig) throw UnsupportedError('AWG uses ICMP ping, not sing-box');
-    final proxyOut = _outbound(proxy);
-    final outbounds = <Map<String, dynamic>>[proxyOut];
-    if (proxy is ShadowTlsConfig) {
-      final inner = _outbound(proxy.innerProxy);
-      inner['tag'] = 'shadowtls-inner';
-      outbounds.add(inner);
-    }
+    validateTargetCompatibility(proxy);
+    if (proxy is AmneziaWGConfig)
+      throw UnsupportedError('AWG uses ICMP ping, not sing-box');
+    final outbounds = proxy is WireGuardConfig
+        ? <Map<String, dynamic>>[]
+        : _proxyOutbounds(proxy);
     outbounds.add(_direct());
     return jsonEncode({
       'log': {'level': 'warn'},
+      if (proxy is WireGuardConfig) 'endpoints': [_wireguardEndpoint(proxy)],
       'outbounds': outbounds,
       'experimental': {
         'clash_api': {
@@ -385,13 +472,22 @@ class SingboxConfigGenerator {
   }
 
   String generateForAndroid(ParsedProxy proxy, AppSettings settings) {
-    // AmneziaWG requires the endpoint API — completely separate config path.
-    if (proxy is AmneziaWGConfig) return _generateForAmneziaWG(proxy, settings);
+    validateTargetCompatibility(proxy);
+    settings.validateNetworkSettings();
+    if (proxy is WireGuardConfig) {
+      return _generateForWireGuardEndpoint(_wireguardEndpoint(proxy), settings);
+    }
+    if (proxy is AmneziaWGConfig) {
+      return _generateForWireGuardEndpoint(_amneziaWGEndpoint(proxy), settings);
+    }
 
-    final proxyOut = _outbound(proxy);
-    final supportsSmux = proxy is! Hysteria2Config &&
+    final outbounds = _proxyOutbounds(proxy);
+    final proxyOut = outbounds.first;
+    final supportsSmux =
+        proxy is! Hysteria2Config &&
         proxy is! TuicConfig &&
-        proxy is! WireGuardConfig;
+        proxy is! WireGuardConfig &&
+        !(proxy is VlessConfig && proxy.flow == 'xtls-rprx-vision');
     if (settings.multiplexerEnabled && supportsSmux) {
       proxyOut['multiplex'] = {
         'enabled': true,
@@ -400,14 +496,6 @@ class SingboxConfigGenerator {
         'min_streams': 4,
       };
     }
-    final outbounds = <Map<String, dynamic>>[proxyOut];
-
-    if (proxy is ShadowTlsConfig) {
-      final inner = _outbound(proxy.innerProxy);
-      inner['tag'] = 'shadowtls-inner';
-      outbounds.add(inner);
-    }
-
     outbounds.addAll([_direct(), _block()]);
 
     final config = {
@@ -426,12 +514,15 @@ class SingboxConfigGenerator {
     return jsonEncode(config);
   }
 
-  String _generateForAmneziaWG(AmneziaWGConfig proxy, AppSettings settings) {
+  String _generateForWireGuardEndpoint(
+    Map<String, dynamic> endpoint,
+    AppSettings settings,
+  ) {
     final config = {
       'log': _log(settings),
       'dns': _dns(settings.copyWith(enableFakeip: false)),
       'inbounds': _inboundsForAndroid(settings),
-      'endpoints': [_amneziaWGEndpoint(proxy)],
+      'endpoints': [endpoint],
       'outbounds': [_direct(), _block()],
       'route': _routeForAndroid(settings),
       'experimental': {
@@ -462,41 +553,56 @@ class SingboxConfigGenerator {
   Map<String, dynamic> _routeForAndroid(AppSettings s) {
     final rules = <Map<String, dynamic>>[
       {'action': 'sniff'},
-      if (s.fragmentationEnabled) {'action': 'route-options', 'tls_fragment': true, 'tls_fragment_fallback_delay': '500ms'},
+      if (s.fragmentationEnabled)
+        {
+          'action': 'route-options',
+          'network': 'tcp',
+          'protocol': 'tls',
+          'tls_fragment': true,
+          'tls_fragment_fallback_delay': '500ms',
+        },
       {'protocol': 'dns', 'action': 'hijack-dns'},
       // Android "Private DNS: Auto" probes DoT (port 853) on the VPN DNS address
       // (172.19.0.2). Nothing listens there, so the ip_is_private→direct rule would
       // send it to a nonexistent host and time out after 5 seconds on every VPN start.
       // Rejecting immediately makes Android fall back to regular UDP DNS (port 53)
       // without delay.
-      {'ip_cidr': ['172.19.0.2/32'], 'port': [853], 'action': 'reject'},
+      {
+        'ip_cidr': ['172.19.0.2/32'],
+        'port': [853],
+        'action': 'reject',
+      },
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
 
     final ruleSets = <Map<String, dynamic>>[];
 
-    if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
-      rules.add({'rule_set': 'ru-blocked',           'outbound': 'proxy'});
+    if (usesBuiltInGeo(s)) {
+      rules.add({'rule_set': 'ru-blocked', 'outbound': 'proxy'});
       rules.add({'rule_set': 'ru-blocked-community', 'outbound': 'proxy'});
-      rules.add({'rule_set': 're-filter',            'outbound': 'proxy'});
+      rules.add({'rule_set': 're-filter', 'outbound': 'proxy'});
       // Russian IPv6 → proxy: Android devices commonly lack IPv6 direct connectivity,
       // causing "network is unreachable" errors. Route Russian IPv6 via proxy instead.
       rules.add({'rule_set': 'ru', 'ip_version': 6, 'outbound': 'proxy'});
       rules.add({'rule_set': 'ru', 'outbound': 'direct'});
       ruleSets.addAll([
-        _ruleSet('ru-blocked',           'ru-blocked.srs'),
+        _ruleSet('ru-blocked', 'ru-blocked.srs'),
         _ruleSet('ru-blocked-community', 'ru-blocked-community.srs'),
-        _ruleSet('re-filter',            're-filter.srs'),
-        _ruleSet('ru',                   'ru.srs'),
+        _ruleSet('re-filter', 're-filter.srs'),
+        _ruleSet('ru', 'ru.srs'),
       ]);
     }
 
-    return {
+    return composeProviderGeoRoute({
       'rules': rules,
       if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
       'final': 'proxy',
-      'default_domain_resolver': {'server': 'local-dns'},
+      'default_domain_resolver': {
+        'server': 'local-dns',
+        'strategy': _ipStrategy(s.preferredIpType),
+      },
       // Android: no auto_detect_interface — routing handled by VPN service
-    };
+    }, s, providerRouting,
+      guardProviderDirectIpv6: target == SingboxConfigTarget.android);
   }
 }

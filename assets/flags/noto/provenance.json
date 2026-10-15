@@ -1,0 +1,1251 @@
+{
+  "repository": "https://github.com/googlefonts/noto-emoji",
+  "commit": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+  "assets": {
+    "AD": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1e9.png",
+      "sha256": "2111ba48ca9fb8ac9de9155c209e26ab29bf3b3879ec88137b4a42823c02725d",
+      "bytes": 10448
+    },
+    "AE": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1ea.png",
+      "sha256": "be89a6d24d5519aa9dcfe32d414806a6273b74c792430107bb260aacb00d2ef6",
+      "bytes": 8919
+    },
+    "AF": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1eb.png",
+      "sha256": "e1355cfe3e98a0e3bdeedd8f17531334dec9d67a8116a621f357373288554870",
+      "bytes": 14833
+    },
+    "AG": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1ec.png",
+      "sha256": "b72b2400845d9e5bfbdf2851042d5c549a4b0698864740fe44cf690f5dc7e1a9",
+      "bytes": 12577
+    },
+    "AI": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1ee.png",
+      "sha256": "bb1f040f44641fa223cce82f7265a1f3bced77ef780c7af1a7c3b349f335247c",
+      "bytes": 14620
+    },
+    "AL": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1f1.png",
+      "sha256": "b3e9aef5eeb043b07dcce85c233fa27c17ad020a098d8eb7033c727e26b3b665",
+      "bytes": 11153
+    },
+    "AM": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1f2.png",
+      "sha256": "9f1f03a8acb2941df2271b78d13091e6c5cff131d2b3d97da280239efbc0e375",
+      "bytes": 9744
+    },
+    "AO": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1f4.png",
+      "sha256": "c7baca42e49b2a512543a7a5f9e5868ccc4bf324372d856a13238fd167924553",
+      "bytes": 11325
+    },
+    "AQ": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1f6.png",
+      "sha256": "7035b683525d2736c1d95129bd440d70d96da9283fe438065e73ab4399981a0e",
+      "bytes": 10511
+    },
+    "AR": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1f7.png",
+      "sha256": "8ccff53100fafa7b1ca41ac8dac76ff1b27e3d681c69af0bac59edddfbec5d2c",
+      "bytes": 10836
+    },
+    "AS": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1f8.png",
+      "sha256": "581574d477ab88a3fa7151d4abe52336b35cd07d08e1539a8caa2737cc9e08ba",
+      "bytes": 15269
+    },
+    "AT": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1f9.png",
+      "sha256": "545d94da9395b7022a1469791ec192233f2cfd4aec87e6c85a6404c84ab3a96f",
+      "bytes": 9990
+    },
+    "AU": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1fa.png",
+      "sha256": "7e8af9af09d599096c38db8c0c020de2a2798e34d5a48c61cc44f99c63ede486",
+      "bytes": 14067
+    },
+    "AW": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1fc.png",
+      "sha256": "47bb0a25e1f233fac0d44925bcf258b53b5ece80954b41903629e80ecb0003c2",
+      "bytes": 12744
+    },
+    "AX": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1fd.png",
+      "sha256": "d6347c2ab47838ca28d8b6ba93760042b2a369295d1ae496c63a30ff07ec3458",
+      "bytes": 11476
+    },
+    "AZ": {
+      "source": "3D/png/128/emoji_u1f1e6_1f1ff.png",
+      "sha256": "575e2a8061a3522b084d7c138a631966c316599bc32e5ef4b560be6e59704a69",
+      "bytes": 10954
+    },
+    "BA": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1e6.png",
+      "sha256": "c394750e800e7287d74add0737dd35650329442eed6ee238bef7600512521a19",
+      "bytes": 11812
+    },
+    "BB": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1e7.png",
+      "sha256": "1d6147cea56dc1fa916fd3918daae7e10ed917df291973cfc64a95f3c623c72b",
+      "bytes": 9568
+    },
+    "BD": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1e9.png",
+      "sha256": "264cf2e0b27442f93f34e4baaa851ff2d642e5380689f745f38b4f59d09605a1",
+      "bytes": 9359
+    },
+    "BE": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1ea.png",
+      "sha256": "f1c90837a702ef2e902bb54e40f0e151fa4933c3dcfaa70793753d080edd3f17",
+      "bytes": 9447
+    },
+    "BF": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1eb.png",
+      "sha256": "b29b94705a177a0504866703e6b4b8eed72a4930b6d06151ef2a0b74f271a2c0",
+      "bytes": 9587
+    },
+    "BG": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1ec.png",
+      "sha256": "41822af585e32fb8e7cbd918e05adcff923e698ac8481e032e55702a6024c251",
+      "bytes": 10182
+    },
+    "BH": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1ed.png",
+      "sha256": "b1b394f3f60a77be949f15ba9071714bb2263021d65728aff45911451b55d986",
+      "bytes": 9348
+    },
+    "BI": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1ee.png",
+      "sha256": "718b05d2360bc9bad565ddb99af4865185cba3b8b5880322967dcbf809d27309",
+      "bytes": 14189
+    },
+    "BJ": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1ef.png",
+      "sha256": "ac1ec0d7a3e449502333c0c251f18e9e8e7adf353b266beec9e2403dacf6df5d",
+      "bytes": 8040
+    },
+    "BL": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f1.png",
+      "sha256": "a83df1fd0c742b46301c56eb10e076b18a2a298ceec4057912b675113366dcd3",
+      "bytes": 16912
+    },
+    "BM": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f2.png",
+      "sha256": "588a153b9ce3601d89b6a7dfe52888770a880c5bfafeecfca5b579c940c073e1",
+      "bytes": 15228
+    },
+    "BN": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f3.png",
+      "sha256": "3d6cc25dce34aa0de763704bd142ceebda004c79944dfb6a644554edb169ad93",
+      "bytes": 13219
+    },
+    "BO": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f4.png",
+      "sha256": "1e7b20cf4d397ce991823535615435070aa168a7af02d6116347b6b837fef80d",
+      "bytes": 9567
+    },
+    "BQ": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f6.png",
+      "sha256": "d1028a151ae776c88b2e4452d088e162c4c404cd5cfe1f87d6d4f9ccc298395e",
+      "bytes": 12121
+    },
+    "BR": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f7.png",
+      "sha256": "a6e91443dd195fd566121a143543a1d6c9c208f270dc164d35c56858b8647fb5",
+      "bytes": 13473
+    },
+    "BS": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f8.png",
+      "sha256": "74363cb6ebb2af1e0c075b0cd0f2535fcea6793adaf012e80d8d1f3c9234b843",
+      "bytes": 10708
+    },
+    "BT": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1f9.png",
+      "sha256": "d872c8ad412eb326ab10b4061393c8fab68fbd955d302ae89142365143872046",
+      "bytes": 12913
+    },
+    "BV": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1fb.png",
+      "sha256": "168df751201114d0dac0890e225a9174e3edafdc2f3c299247076d630eaa58c5",
+      "bytes": 11216
+    },
+    "BW": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1fc.png",
+      "sha256": "4514dbd202ac7eb940818e0883585d663d06ce948322f44d8e4e0a69501022b9",
+      "bytes": 11280
+    },
+    "BY": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1fe.png",
+      "sha256": "0fa2732b305ea55689c427cbd5067f7d8b866c79cdfaeeff6b540c6d466ac6cd",
+      "bytes": 12148
+    },
+    "BZ": {
+      "source": "3D/png/128/emoji_u1f1e7_1f1ff.png",
+      "sha256": "78eb57b32dc0fedc6009d0958c79a5f52512c2d8584a5fb5fb81f572ea228672",
+      "bytes": 18519
+    },
+    "CA": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1e6.png",
+      "sha256": "0614eaf9aa950d5bfc44a7d20ba17b452fc5d68500e63ea77b734ac0289df4ce",
+      "bytes": 7533
+    },
+    "CC": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1e8.png",
+      "sha256": "3888690b40a8a292fd44404f69199dcf06959856d918524f3d62ed05111ff57f",
+      "bytes": 12037
+    },
+    "CD": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1e9.png",
+      "sha256": "17dd8f9dae26d7b7d0c064704d334147ac8dda1bb3ab429c2a814cda35b38c25",
+      "bytes": 14998
+    },
+    "CF": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1eb.png",
+      "sha256": "3ae9a9ff256846c3da9f7800801a711fcc2422b4b24eccc5562eccd830e21d2a",
+      "bytes": 11179
+    },
+    "CG": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1ec.png",
+      "sha256": "65ef03956c94e7502056ff064c4280529401d0d4da8eb6e1efb06880fdc809de",
+      "bytes": 9768
+    },
+    "CH": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1ed.png",
+      "sha256": "dfb1aac88d503f6606179cd9c6166a3f6e525548d44c8b25dbb68e3c0bb10bfc",
+      "bytes": 8554
+    },
+    "CI": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1ee.png",
+      "sha256": "d67c680e9d2af2e4a9c4f15d3582047eac9252cde27e7c27ab4dfb493e36bb5c",
+      "bytes": 7372
+    },
+    "CK": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1f0.png",
+      "sha256": "50aad39947b4dc6d57de44ac2a487e813887e771f58da26250f09aa2da197d27",
+      "bytes": 16139
+    },
+    "CL": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1f1.png",
+      "sha256": "d283bdf52dca3c833b1e19012e93af5a87ccbfc4aab009ca46a8e02de54c6d14",
+      "bytes": 9920
+    },
+    "CM": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1f2.png",
+      "sha256": "177445c66a86c0eed8bb23acdcf99caeb3fb0f5466e67ea2d26f7bee8316a2d2",
+      "bytes": 8050
+    },
+    "CN": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1f3.png",
+      "sha256": "b8b0cb17e19ee35c9e64cb5f294596c3e282042a3e5e18b256f60510e5f11864",
+      "bytes": 8291
+    },
+    "CO": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1f4.png",
+      "sha256": "e271fdc19b358cdba71a3f0ee3f1ba96cec97996485b416500de2ac6a1af783f",
+      "bytes": 9787
+    },
+    "CR": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1f7.png",
+      "sha256": "85cc60ebad211837d40c6ff2fb9632cca637e85590e74179dcd0eed0fd198689",
+      "bytes": 12314
+    },
+    "CU": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1fa.png",
+      "sha256": "5dee6eb4d04d1ca18e1ce1073d3b51f8aef674385c74689a12312299984a505c",
+      "bytes": 13543
+    },
+    "CV": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1fb.png",
+      "sha256": "52e49a70ea034d71ddf6984b7af682d33a72c6c4792303340c16089be4482280",
+      "bytes": 13784
+    },
+    "CW": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1fc.png",
+      "sha256": "e55416f7061573f2778d306972c369d502ea1fb5f9b67fdf0e3e334d666c86fb",
+      "bytes": 11432
+    },
+    "CX": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1fd.png",
+      "sha256": "1d9ad59c4a0f2d45a734a0100ec2df001b0442c3f8497c0f4ef85b5c6663516e",
+      "bytes": 13285
+    },
+    "CY": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1fe.png",
+      "sha256": "f5bcb321fdac43bc4219bdc8e9f761c9118e8c68e83c4fcd3cd1bb9d4317099b",
+      "bytes": 10784
+    },
+    "CZ": {
+      "source": "3D/png/128/emoji_u1f1e8_1f1ff.png",
+      "sha256": "5847436f921f7f47153a37f36c8274302d5bf973cc8f9b79ba0619898914e3e1",
+      "bytes": 9573
+    },
+    "DE": {
+      "source": "3D/png/128/emoji_u1f1e9_1f1ea.png",
+      "sha256": "2fec4c8dac76ed675c4c27fd06ccfb2cdcbc939066b895b07f74868d99dc894e",
+      "bytes": 8193
+    },
+    "DJ": {
+      "source": "3D/png/128/emoji_u1f1e9_1f1ef.png",
+      "sha256": "1f626a287003d9a4f83d2e4e86789017db155edcadc3aae32eeda18263c2dee6",
+      "bytes": 10729
+    },
+    "DK": {
+      "source": "3D/png/128/emoji_u1f1e9_1f1f0.png",
+      "sha256": "f775aed7d12b90d2e415db14581aba3a9e712e96a09197cd6502b4daf7f32316",
+      "bytes": 11157
+    },
+    "DM": {
+      "source": "3D/png/128/emoji_u1f1e9_1f1f2.png",
+      "sha256": "112189e27214df13509a875db9eeac6bde439c49e2fab9b806e2de2850f49b18",
+      "bytes": 13714
+    },
+    "DO": {
+      "source": "3D/png/128/emoji_u1f1e9_1f1f4.png",
+      "sha256": "ee78f9a6e21305e0c4cedf75aaddc392e035c8737d64c85856ab76d840cc9c2c",
+      "bytes": 10932
+    },
+    "DZ": {
+      "source": "3D/png/128/emoji_u1f1e9_1f1ff.png",
+      "sha256": "821b15fa8e416ca1d89b47ce3ef5a8435a0f1b686b55dda0d82e655e51e5c7e3",
+      "bytes": 10542
+    },
+    "EC": {
+      "source": "3D/png/128/emoji_u1f1ea_1f1e8.png",
+      "sha256": "55be9b1af47264bf8e9ebb33bc65a66b5008a8074ac113ed74725b35bb29527f",
+      "bytes": 12042
+    },
+    "EE": {
+      "source": "3D/png/128/emoji_u1f1ea_1f1ea.png",
+      "sha256": "66fddf9dae453c858f8e278f128afd8d79111b4756d1ab37ded7e00b88257fda",
+      "bytes": 9717
+    },
+    "EG": {
+      "source": "3D/png/128/emoji_u1f1ea_1f1ec.png",
+      "sha256": "d42e55841c22f86c292aaaeeed725cc7461044675683e9a71a3cb27bfa365845",
+      "bytes": 10670
+    },
+    "EH": {
+      "source": "3D/png/128/emoji_u1f1ea_1f1ed.png",
+      "sha256": "4137d1bc53cc80671206dc540dcfa15e2e17e05b5d3bc74e7d3d0d59f1b5dc27",
+      "bytes": 11382
+    },
+    "ER": {
+      "source": "3D/png/128/emoji_u1f1ea_1f1f7.png",
+      "sha256": "c69337a62faf03cd4d54466216e587bae4858441c09f03e0e152044602e9bc84",
+      "bytes": 13199
+    },
+    "ES": {
+      "source": "3D/png/128/emoji_u1f1ea_1f1f8.png",
+      "sha256": "358e6b9398f5190de20996e36f9a53cce910dec343cfc393144adf6a4dc2aad6",
+      "bytes": 11435
+    },
+    "ET": {
+      "source": "3D/png/128/emoji_u1f1ea_1f1f9.png",
+      "sha256": "4a515d84193cad00d76acd4706833f2eec59019b18c5a09d4c36ad61f05301c2",
+      "bytes": 12923
+    },
+    "FI": {
+      "source": "3D/png/128/emoji_u1f1eb_1f1ee.png",
+      "sha256": "141b80733d523d8a63a9855c86bcf5d8765ae5dc6c8ed559741aac95516acb70",
+      "bytes": 10160
+    },
+    "FJ": {
+      "source": "3D/png/128/emoji_u1f1eb_1f1ef.png",
+      "sha256": "28bb2b00bc8f46921787b27551a057ce548fdd8f05a159891724a1a0fe742cc0",
+      "bytes": 15495
+    },
+    "FK": {
+      "source": "3D/png/128/emoji_u1f1eb_1f1f0.png",
+      "sha256": "f9769a4fbca28b4fc46cf06e198f20a5637c09e1a6aad9e9ed3f8a98122f7a20",
+      "bytes": 16010
+    },
+    "FM": {
+      "source": "3D/png/128/emoji_u1f1eb_1f1f2.png",
+      "sha256": "3c98c90936b11251605c66a24034e4db89afb22f0efe5dbc047f7c8d7f41602b",
+      "bytes": 9314
+    },
+    "FO": {
+      "source": "3D/png/128/emoji_u1f1eb_1f1f4.png",
+      "sha256": "58ed69ffdd726d521f47c2f2cf11723fd1138e3bad2c363d072b52d4524e372e",
+      "bytes": 11829
+    },
+    "FR": {
+      "source": "3D/png/128/emoji_u1f1eb_1f1f7.png",
+      "sha256": "b6594b7500f5254a5b0b3d6ae45b64724e2be11134000a9747e5b2ba7bf88be6",
+      "bytes": 7918
+    },
+    "GA": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1e6.png",
+      "sha256": "f006c829d8e96776f486b13910a346f52f79787e85fc8951810683dbf4dd2fb0",
+      "bytes": 11393
+    },
+    "GB": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1e7.png",
+      "sha256": "92dcf7d616a65c4170961e9bcb973842c1bf875dd3b53c7a8e3c594cb1c2c272",
+      "bytes": 17479
+    },
+    "GD": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1e9.png",
+      "sha256": "5a709db241bc2b4745be3085fd5493c94af0d7cdb124dbc9fe0b07c0457ad694",
+      "bytes": 13595
+    },
+    "GE": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1ea.png",
+      "sha256": "78bce06a4f1108032d790472643db4b0e38618d852a0349ed9c37b0ea012b4cd",
+      "bytes": 9748
+    },
+    "GF": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1eb.png",
+      "sha256": "3355dd8a63babc2e9ce8da527336e86b8e839444e13e3fb87ce0a9cb1dd64ea3",
+      "bytes": 9617
+    },
+    "GG": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1ec.png",
+      "sha256": "1b543fa173b3ee27ac86a51a7f26f1250d0f75ae39f877d3fb59ff112b877699",
+      "bytes": 10533
+    },
+    "GH": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1ed.png",
+      "sha256": "4dea3c874c29c65070be35f486bd447f95cac158e569fd95111d0a814b73b43f",
+      "bytes": 10526
+    },
+    "GI": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1ee.png",
+      "sha256": "f0bb2168f06bc80104250a32ef27b54b8a3ef5f3f3796e823ccb90018b3df07d",
+      "bytes": 10928
+    },
+    "GL": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f1.png",
+      "sha256": "8511a6d28d3395924d423da1ff73ae21bbc487063882567d9499f223c15dfa27",
+      "bytes": 10398
+    },
+    "GM": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f2.png",
+      "sha256": "4671dfa18043775b79359acf71fad92bbe2b1c9f51f95a688fa183d07f476e2b",
+      "bytes": 12001
+    },
+    "GN": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f3.png",
+      "sha256": "609437a1cf1ed69fbe27934a8f76430d8b393c7770491c5daa9b45530bfa9552",
+      "bytes": 7495
+    },
+    "GP": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f5.png",
+      "sha256": "27247ac7fedd548a324bc8799a10c835975401d848843388d154e7dfb423ee8e",
+      "bytes": 15494
+    },
+    "GQ": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f6.png",
+      "sha256": "69839d0b6acc2dba00c0bf899d11eda31308b8b182c5c8fbe6d1fe935cc60ef7",
+      "bytes": 11344
+    },
+    "GR": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f7.png",
+      "sha256": "41ab14da684a5b592aa6c46be590a27d4e675700ac1994b248782f536bcf678c",
+      "bytes": 15187
+    },
+    "GS": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f8.png",
+      "sha256": "2f7f9469bd4e4d3a6a83d0040db648fc681d154ad827b87e8e3c621b7d9847c2",
+      "bytes": 16675
+    },
+    "GT": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1f9.png",
+      "sha256": "abfbfc6d3c9bb86814b82342b827431a39b2144943c1c192dab512a9ec37668a",
+      "bytes": 9722
+    },
+    "GU": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1fa.png",
+      "sha256": "d47b808a6931e0f28961c8ad774f65adf70b6fd0b18d27de203d62aa53f3fe52",
+      "bytes": 11525
+    },
+    "GW": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1fc.png",
+      "sha256": "e69526a2ff5a03656daf6a40a14485c9ea8a5ad938168aadefcc94c872decf89",
+      "bytes": 8991
+    },
+    "GY": {
+      "source": "3D/png/128/emoji_u1f1ec_1f1fe.png",
+      "sha256": "9bb78d30f35fe93dfd3c49b9b5680f10940b02a50686a64a5468fa5df5c54029",
+      "bytes": 13955
+    },
+    "HK": {
+      "source": "3D/png/128/emoji_u1f1ed_1f1f0.png",
+      "sha256": "c318b823afdf18a77174639bde8b697f39a9327bf494d21713de4f9eedaab318",
+      "bytes": 10606
+    },
+    "HM": {
+      "source": "3D/png/128/emoji_u1f1ed_1f1f2.png",
+      "sha256": "c9e959455c654a04c82e450ed8519c23bca3aac10995cd5afadc76f00f560740",
+      "bytes": 14003
+    },
+    "HN": {
+      "source": "3D/png/128/emoji_u1f1ed_1f1f3.png",
+      "sha256": "a11a08ee2ba2b6fcd288c9868f45225f0de0ae31ad50afdc83469173e8928663",
+      "bytes": 11057
+    },
+    "HR": {
+      "source": "3D/png/128/emoji_u1f1ed_1f1f7.png",
+      "sha256": "1c768601338329d720d45cad050c23e5f2dd6a06890dd882695d4e57c8b44b07",
+      "bytes": 10971
+    },
+    "HT": {
+      "source": "3D/png/128/emoji_u1f1ed_1f1f9.png",
+      "sha256": "ecfc14e434cc8347211e73e46e4c4b509be101fc8f8df36a1d729b5258aeedb8",
+      "bytes": 10357
+    },
+    "HU": {
+      "source": "3D/png/128/emoji_u1f1ed_1f1fa.png",
+      "sha256": "29f0f02415e34d8c721fc2a92c7c19c932851204d5a695267cbf8224199d469d",
+      "bytes": 9963
+    },
+    "ID": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1e9.png",
+      "sha256": "cb3bc2506212e35cd7a726aa9ec5cfe493252f0d0dc0649176ab91c92c9cf539",
+      "bytes": 6765
+    },
+    "IE": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1ea.png",
+      "sha256": "804de5bb71cc1a95ce8bcb1e069e2fd9b32712f7bb456ac90bde25d47a66cc05",
+      "bytes": 7735
+    },
+    "IL": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f1.png",
+      "sha256": "737334aea865ba0c7610b635e37e8cb7984b4a8129d2820c7a5081ad8c34946e",
+      "bytes": 13857
+    },
+    "IM": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f2.png",
+      "sha256": "235e0196672c6af98d1ef2dcbf8620b08f49538153749e19f057c6406e3cbbed",
+      "bytes": 10412
+    },
+    "IN": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f3.png",
+      "sha256": "8a8b716ba80072542b1835feec2f220eeb082c3589fa5a76dde92869f649f2df",
+      "bytes": 10910
+    },
+    "IO": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f4.png",
+      "sha256": "e9612587a918a3cd3709bb4f8cdf2d5b935e73ceb7ece30e9918b51c63dba52e",
+      "bytes": 24082
+    },
+    "IQ": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f6.png",
+      "sha256": "5dd317040af0b141e7b29455a0b3294d592f3566c6bacd00e249f77bf88358d7",
+      "bytes": 11171
+    },
+    "IR": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f7.png",
+      "sha256": "8ac458824f3d33066ecd61ea9e5782d8158c5b3175b9f8b94c22cadd88242c43",
+      "bytes": 12240
+    },
+    "IS": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f8.png",
+      "sha256": "2e90303bc6f41510707267163a5ec53e772827b76faa0fa5d57bfbf3f8c46f5b",
+      "bytes": 11834
+    },
+    "IT": {
+      "source": "3D/png/128/emoji_u1f1ee_1f1f9.png",
+      "sha256": "cd78e95fe406f3d4ae68268750492c65d14555bf6451b637082f43405a72ea17",
+      "bytes": 8082
+    },
+    "JE": {
+      "source": "3D/png/128/emoji_u1f1ef_1f1ea.png",
+      "sha256": "5bfb13006ac34a830b38c94b7a723e189983945d098d99339562c14c98109769",
+      "bytes": 14213
+    },
+    "JM": {
+      "source": "3D/png/128/emoji_u1f1ef_1f1f2.png",
+      "sha256": "93ce2ac0eb58186303d8bf4e251245b623456c41d261356604848a573cf54350",
+      "bytes": 12796
+    },
+    "JO": {
+      "source": "3D/png/128/emoji_u1f1ef_1f1f4.png",
+      "sha256": "d4b812c55ba94e7d11c1dd04a24b5ef35765d7aa10fc9414fa2411d0fa193269",
+      "bytes": 11279
+    },
+    "JP": {
+      "source": "3D/png/128/emoji_u1f1ef_1f1f5.png",
+      "sha256": "c20dd22aca06e9db7441aa6ea8b86176733a3abc2e48d837d0a5685978f1416c",
+      "bytes": 8772
+    },
+    "KE": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1ea.png",
+      "sha256": "c88b83a7026505c2186d0be2cf0d1a43acac735209967eeee64c5a37a7118e48",
+      "bytes": 13209
+    },
+    "KG": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1ec.png",
+      "sha256": "d33442ece84f025ba86ac6ac5eb22985458be734b68282f38f4a83fb39624fc5",
+      "bytes": 11092
+    },
+    "KH": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1ed.png",
+      "sha256": "4dd582dabfafffbe6cbc2c8ea76deecb1e47acf08263f321d284ea991ce3e49c",
+      "bytes": 12972
+    },
+    "KI": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1ee.png",
+      "sha256": "fc37fb8ddd3ccf6ec7ab67b573b5bd2d16fe629cd318b6f1f9b52d73d5d11b3e",
+      "bytes": 15946
+    },
+    "KM": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1f2.png",
+      "sha256": "03d5d9ac4f50556b74c62d280a1649bb43c7952ab8061bcaba9e2156dd33dd47",
+      "bytes": 12747
+    },
+    "KN": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1f3.png",
+      "sha256": "ca835448dc30fced1eda604475db76c910b43e69b11bb4d466c4825310f8d19d",
+      "bytes": 13813
+    },
+    "KP": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1f5.png",
+      "sha256": "2c0bb26f1fc259f019d436f4c9818e99502e77cbae086b71512b44e32d7377cd",
+      "bytes": 11980
+    },
+    "KR": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1f7.png",
+      "sha256": "c7e557c8cd9a47336a67d3b62b4bb61933a5f866e967a772ec0d2cf1eb944bfb",
+      "bytes": 12721
+    },
+    "KW": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1fc.png",
+      "sha256": "b1b993530fd545fe1ce23f98d0986bbb5ac3f9d255fcecb95ee078fa47fe34d3",
+      "bytes": 10466
+    },
+    "KY": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1fe.png",
+      "sha256": "4b8b51ca866e2feb47190f92be997fbc824ecbf9d462d3de88cdeedb6c633aef",
+      "bytes": 16020
+    },
+    "KZ": {
+      "source": "3D/png/128/emoji_u1f1f0_1f1ff.png",
+      "sha256": "85e0b26962f31ccbc5ea6fddcf3af6499dc8081c0a4641641732525c9ef3173f",
+      "bytes": 12283
+    },
+    "LA": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1e6.png",
+      "sha256": "5ab4186bb9a2f4b7863c8db366a5844fe46fa18cf9da7c3050e2a6b878e470a6",
+      "bytes": 11377
+    },
+    "LB": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1e7.png",
+      "sha256": "5b081aea12207227e8feaba17c11b4808fada112c4c91585cf8d175d39eee609",
+      "bytes": 11589
+    },
+    "LC": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1e8.png",
+      "sha256": "6d1b1574792ef2822df382f3ab8aa8b8998a0505f0790e0532de92d7751a5cf8",
+      "bytes": 10065
+    },
+    "LI": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1ee.png",
+      "sha256": "9330c674ed3402e7d84aee7ced19cfe60f6258d6a3392619e22f99d9bf0d4621",
+      "bytes": 10445
+    },
+    "LK": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1f0.png",
+      "sha256": "76e6e58e08702ebcfe5af563ca69a6f1ad05474d8b7ecec96e494c4abdbcade7",
+      "bytes": 14070
+    },
+    "LR": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1f7.png",
+      "sha256": "97efca66741a28326d9c6fb12d2648dfaadc39c361e67200f0e8a8ca006164bc",
+      "bytes": 17121
+    },
+    "LS": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1f8.png",
+      "sha256": "9beca89299df4c02b0c3b58908917cfa258bc616b2f2599fffcefa4259c07a2e",
+      "bytes": 11546
+    },
+    "LT": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1f9.png",
+      "sha256": "fc20f45b506e6ed41429be3e046e9486db4236be729a60f635281679f0fb5c81",
+      "bytes": 9724
+    },
+    "LU": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1fa.png",
+      "sha256": "ccfe6164556cbdfedf7d8b672cb09042d3d87a3f899857af0c9cf3703fd430f0",
+      "bytes": 9691
+    },
+    "LV": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1fb.png",
+      "sha256": "9d3fe34492dad3ddefbfaed1392268af7d3fb6847adb5c25bbdc72b2c0132993",
+      "bytes": 9942
+    },
+    "LY": {
+      "source": "3D/png/128/emoji_u1f1f1_1f1fe.png",
+      "sha256": "6ff52f4145e49dfc178135179ed989d91c3825137cee51260540d5a42a3b384b",
+      "bytes": 10017
+    },
+    "MA": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1e6.png",
+      "sha256": "5149feb40d5310e67b41d40d9346de9695e8419d368b00f7bdbd2893d470ffb1",
+      "bytes": 9088
+    },
+    "MC": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1e8.png",
+      "sha256": "858d79be6d81038e281192e00aedb40ea5f4a17c9ef1cc9b45146809d0922bed",
+      "bytes": 10219
+    },
+    "MD": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1e9.png",
+      "sha256": "37d3855cb5f374ae92f6e1275bb4c7c11d6077695ef90fcfee74d31ae5ad51bd",
+      "bytes": 10043
+    },
+    "ME": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1ea.png",
+      "sha256": "434e04097b3250fed79c690111c091299577afd3ea3eec874949fa4680dc42d0",
+      "bytes": 11258
+    },
+    "MF": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1eb.png",
+      "sha256": "a5867c9f3d706cbb9289557a3e7eb451329c9a32f86cf0d79bd2babc6c3d7a7a",
+      "bytes": 7901
+    },
+    "MG": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1ec.png",
+      "sha256": "5e4655b2569effda13f5ebd49cdfc1a11c3ae4dd34ad541cf1e4fb8cad0eb8bf",
+      "bytes": 8278
+    },
+    "MH": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1ed.png",
+      "sha256": "736308ef267a805df312ec0a56c4637a3ef89fd6acb9492f7051039207796b17",
+      "bytes": 14135
+    },
+    "MK": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f0.png",
+      "sha256": "e0d491232d8dfd670ecdce455c71006b2c2b33147c922133d9a0ad9ef4daba80",
+      "bytes": 11828
+    },
+    "ML": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f1.png",
+      "sha256": "9b0aabc8cfde9f79cace73bdae65a79c49d3aa1f37c5b0d8c54b23126bd022b1",
+      "bytes": 7337
+    },
+    "MM": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f2.png",
+      "sha256": "b7d7381a9d4c51c4ed26dd276396ac03943daf44887f5c90f472e4b869dc16db",
+      "bytes": 11259
+    },
+    "MN": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f3.png",
+      "sha256": "a8a7f831e142a5294f95cb58f20cd26678691268ccf69b23fb8fefc8976defac",
+      "bytes": 9965
+    },
+    "MO": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f4.png",
+      "sha256": "2a778fabac061f587f3b2b8252775bacf87dd065f9c4d34a2922bdd88ecb7ddc",
+      "bytes": 11752
+    },
+    "MP": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f5.png",
+      "sha256": "80c00dca7d3f38d76055ef11a8f3a4197e203c44fb50f19d6c98d75b74db274d",
+      "bytes": 15119
+    },
+    "MQ": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f6.png",
+      "sha256": "ebf6e3cdae9802788a2ea20905bafbaccedce01cf8e926bd6ab32bbdee147aaa",
+      "bytes": 9499
+    },
+    "MR": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f7.png",
+      "sha256": "3b5fa4c6088977d5a6e309f1a08593c178317f7aae038cb63aea05fb4346248c",
+      "bytes": 12479
+    },
+    "MS": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f8.png",
+      "sha256": "dc2c4df5a8af48426024b8cab241ec0c71768d61cefeadaa09a53b96e7d355ba",
+      "bytes": 14793
+    },
+    "MT": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1f9.png",
+      "sha256": "1bcb03e41aa380c41f2d2f1168c5ef4df37983d98bb1b13e8865f4c918f8bfb3",
+      "bytes": 8131
+    },
+    "MU": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1fa.png",
+      "sha256": "c7aea7f1662555c023df2d8b1d105c73044dbbc8674ab152c6345642c7af0c70",
+      "bytes": 11139
+    },
+    "MV": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1fb.png",
+      "sha256": "fef80d16807a2c793505d4fcf5bcdba286743433376cf07f8d0acdbdfb160d42",
+      "bytes": 10321
+    },
+    "MW": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1fc.png",
+      "sha256": "79dc8a074077daa4da6b4986c241c70b1a6e3e90f21f0f05e5d28bafdc1b081d",
+      "bytes": 11707
+    },
+    "MX": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1fd.png",
+      "sha256": "2ec4675d4fbc3cce69ed03b33d8e53fcad1a6856c72d257566636804922b3ece",
+      "bytes": 10182
+    },
+    "MY": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1fe.png",
+      "sha256": "d4be7d7a68f4d837ac76d510446c52d80648ceef1c8f99150366f054cfc6329a",
+      "bytes": 17429
+    },
+    "MZ": {
+      "source": "3D/png/128/emoji_u1f1f2_1f1ff.png",
+      "sha256": "f5a74827d0d19b9f2ada59b7a54e58eece2f15847b27123a4848742529d7fa1b",
+      "bytes": 13302
+    },
+    "NA": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1e6.png",
+      "sha256": "cf9b5e5be69308e61a215142a31f3d04df23a2acd67a6d16aea9bba892113cca",
+      "bytes": 14225
+    },
+    "NC": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1e8.png",
+      "sha256": "b900bf212b5b671c5442d0d2e5d8857638a588c8f122a9c56c59bd44f5d091a0",
+      "bytes": 12443
+    },
+    "NE": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1ea.png",
+      "sha256": "7424d1bad3e09c7089ff4db707f0d147d22eb0b9323a61c240e02d38ac6deedc",
+      "bytes": 12274
+    },
+    "NF": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1eb.png",
+      "sha256": "cb9dddf38ec91fae06ad0a76b431bbb63a8c1e3828bf20804a8799396f9b2dec",
+      "bytes": 11638
+    },
+    "NG": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1ec.png",
+      "sha256": "883a190c2590a83c09fe2ada5c9a904a8aa579d1500aea24bff83724b6c4a79d",
+      "bytes": 7821
+    },
+    "NI": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1ee.png",
+      "sha256": "02d791451b26ce7071cffc0efdaad2e8c91d80cdf9112646678b613bc40cdf44",
+      "bytes": 10838
+    },
+    "NL": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1f1.png",
+      "sha256": "7653747d0d9c16c99142a0062da5eb91c9010867cddd9804d42115a6e5c229c3",
+      "bytes": 10261
+    },
+    "NO": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1f4.png",
+      "sha256": "9adca44ba6de6897370e6b32e9dabdb1ebc59e376189e0e0917f2fc6560d0713",
+      "bytes": 11181
+    },
+    "NP": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1f5.png",
+      "sha256": "e1b6f68bec9bcc7eaf970ac7374255bae2bf272041f9ab4e9d9c61e294995323",
+      "bytes": 12569
+    },
+    "NR": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1f7.png",
+      "sha256": "1d51ad207664d33ea6e290f319613cddc704fd595dde88fc97bfa3ab9bd62787",
+      "bytes": 11387
+    },
+    "NU": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1fa.png",
+      "sha256": "75b225ca0ee1c6e719f28d2faf50327b695f15f2a10371597c3457af8a51d557",
+      "bytes": 12272
+    },
+    "NZ": {
+      "source": "3D/png/128/emoji_u1f1f3_1f1ff.png",
+      "sha256": "92cbb61fe60e008890c99e64f295360fb4e1b3a01f56042dfb56ccd888e0d196",
+      "bytes": 13937
+    },
+    "OM": {
+      "source": "3D/png/128/emoji_u1f1f4_1f1f2.png",
+      "sha256": "e53bdbc60c51cc110238dfaf3723402d1ee9ea245d1c70e13eec0079641a23f8",
+      "bytes": 10300
+    },
+    "PA": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1e6.png",
+      "sha256": "5ff49d727ccf43553627a418da36258f573958a837cb39ccb3b87c29411f04d5",
+      "bytes": 10224
+    },
+    "PE": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1ea.png",
+      "sha256": "017a10aa738664076bd10b8c0b15dd53954665291a644928c5efbdf6bbb8a439",
+      "bytes": 7492
+    },
+    "PF": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1eb.png",
+      "sha256": "6cbf5e27c7ff30bf2aac30071434a3b70ef22918a69dbbe9206d88e9b3634d07",
+      "bytes": 12871
+    },
+    "PG": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1ec.png",
+      "sha256": "0449bbf9ea5ecf3cce1719eff4ed4114a61df199c18d4c0c86517e4e05a76020",
+      "bytes": 14188
+    },
+    "PH": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1ed.png",
+      "sha256": "c136d8be7c04f5d3ac4f604799788c855b27ba5498650f9b6a226ca8ddbe2e67",
+      "bytes": 11567
+    },
+    "PK": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1f0.png",
+      "sha256": "02a5f7263847c184be49155fe8b454c32662c6c0fa81c2096fc71e11aff803a0",
+      "bytes": 10483
+    },
+    "PL": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1f1.png",
+      "sha256": "d7f4d410dc7f58f590d9311432ac28a7b812a83f799e03d687fdec12a5f1a446",
+      "bytes": 8464
+    },
+    "PM": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1f2.png",
+      "sha256": "69988158b53481fdc74f53eee086c4f35a22a83cc66fe01e9786f7e24233affd",
+      "bytes": 22779
+    },
+    "PN": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1f3.png",
+      "sha256": "aa3fd3d1438fdb593958ae3f5f404436874b64edd2842e3005e02c15e0496420",
+      "bytes": 17296
+    },
+    "PR": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1f7.png",
+      "sha256": "bc5b3b1357e5ceaf2dd0f9cb5736eaebd634b367d3538073510f662a64ec21ce",
+      "bytes": 11696
+    },
+    "PS": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1f8.png",
+      "sha256": "e2cfffa459364e8e46c0e782b008c1f3343d4f1c1ac225ab79fa2c378d75ecd1",
+      "bytes": 10696
+    },
+    "PT": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1f9.png",
+      "sha256": "32eff0c26e19b6ef94450520eeea57df657b540744f6571d1a546baaa26a1a1e",
+      "bytes": 9908
+    },
+    "PW": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1fc.png",
+      "sha256": "ba3c2c55294fb0da063cca17177124f608f0a0fa326944aef8e87f217a310c21",
+      "bytes": 9368
+    },
+    "PY": {
+      "source": "3D/png/128/emoji_u1f1f5_1f1fe.png",
+      "sha256": "df3bc8cc00db79c8fcecda0ead77fdf37c825e146045fe51a7026ab03fa9a45a",
+      "bytes": 11296
+    },
+    "QA": {
+      "source": "3D/png/128/emoji_u1f1f6_1f1e6.png",
+      "sha256": "2769e4beb9a85802781e9922d1bd622214aee97ff12684d4b327564202a02939",
+      "bytes": 8675
+    },
+    "RE": {
+      "source": "3D/png/128/emoji_u1f1f7_1f1ea.png",
+      "sha256": "3da5788411d3a11ca78d0758b862d8203d0372c549f14ba61176dac4b58d2720",
+      "bytes": 13181
+    },
+    "RO": {
+      "source": "3D/png/128/emoji_u1f1f7_1f1f4.png",
+      "sha256": "0d9dee2d561d99d48fd3c721f45e4d0cc29ff5181163cda779e3d822f9473a03",
+      "bytes": 7374
+    },
+    "RS": {
+      "source": "3D/png/128/emoji_u1f1f7_1f1f8.png",
+      "sha256": "737b372e9f19db265c8ff8928fe7b9b2601c3d3db32470ff59fcf826c2e20525",
+      "bytes": 13849
+    },
+    "RU": {
+      "source": "3D/png/128/emoji_u1f1f7_1f1fa.png",
+      "sha256": "47e9a84754ab2bfff963f910a2c1d94fb5e3c7861d499108b10f4a11f8d7744e",
+      "bytes": 10280
+    },
+    "RW": {
+      "source": "3D/png/128/emoji_u1f1f7_1f1fc.png",
+      "sha256": "a7974c8863c19c3e06bcb24d25d9290acf77af3e81304ea10f2d4ec1ac08edf0",
+      "bytes": 11075
+    },
+    "SA": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1e6.png",
+      "sha256": "14c859d44295326bc3bf558580635de49f137a70c67ff83df47cd06f65a4b058",
+      "bytes": 12718
+    },
+    "SB": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1e7.png",
+      "sha256": "1541d0a6db2bf2c715930b82be3ed64a840710581a221c8eff1cc859499e6de3",
+      "bytes": 13131
+    },
+    "SC": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1e8.png",
+      "sha256": "f12babf9324b67955dcf989eb1786cc629714f914e6052e2b0c4bbc47cbbe03e",
+      "bytes": 12064
+    },
+    "SD": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1e9.png",
+      "sha256": "7f7b447b3dfc155b4433ffdf337244f0d35166475a8a161ecde5c2dcaaa49786",
+      "bytes": 10476
+    },
+    "SE": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1ea.png",
+      "sha256": "4955417109837007becf94717f28fc110019ec4fabd29321cada5472e4afb6db",
+      "bytes": 9868
+    },
+    "SG": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1ec.png",
+      "sha256": "59cea4abe560371e86e1c5ed823f35d2244a55a069911706295b3a5990c46bdc",
+      "bytes": 10286
+    },
+    "SH": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1ed.png",
+      "sha256": "1bb7b899a146fdd05c36a45af0e02822a8ebb3ee59be42574d64081fd03620fd",
+      "bytes": 14387
+    },
+    "SI": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1ee.png",
+      "sha256": "174183b2223293b5b74ad6a74382e799bddcfbe1f9d97b0ede6ca66c2f5b141e",
+      "bytes": 10753
+    },
+    "SJ": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1ef.png",
+      "sha256": "67eddc2812e3562379264b3296fe130e5865d9be6302d8c25343557842244f7a",
+      "bytes": 11266
+    },
+    "SK": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f0.png",
+      "sha256": "b50b6c71d8e9e4a0d62bb2203df04aba13345234e0dc765b87cd7d2406f185ca",
+      "bytes": 11486
+    },
+    "SL": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f1.png",
+      "sha256": "79bf42f62380580a355ed3cad86f0722b02c6b3797229fb8a4611c29e4271f16",
+      "bytes": 10001
+    },
+    "SM": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f2.png",
+      "sha256": "d672e97780bb461b6c3bf1d2819464294d9ebef1d339b59a55fea87c95a820c8",
+      "bytes": 15253
+    },
+    "SN": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f3.png",
+      "sha256": "4ee2e45700071bd3c705c58eb4d78a254277992370a231ca9acf58795502ee44",
+      "bytes": 8352
+    },
+    "SO": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f4.png",
+      "sha256": "6098860624243945eeddf8983e05097a78711a8a9409ed425ce39a0044c15069",
+      "bytes": 9284
+    },
+    "SR": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f7.png",
+      "sha256": "0e541b8cc33b5faf71be741416a5fcac3ca9f8f0d981ad7384967c8e0793973a",
+      "bytes": 13234
+    },
+    "SS": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f8.png",
+      "sha256": "d3343accb2c63fd9816ac91f6f0199a69db3c9bc57ec55fc1cddb9e21321d475",
+      "bytes": 12561
+    },
+    "ST": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1f9.png",
+      "sha256": "4690153510ba839556b39df10b88e51e5ab8156cfd7e941130c7eaa0b528a102",
+      "bytes": 11605
+    },
+    "SV": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1fb.png",
+      "sha256": "5dd7cac04bb3805501ed8d89fb86bb70db19e229513dddcca946f135b439c607",
+      "bytes": 11406
+    },
+    "SX": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1fd.png",
+      "sha256": "c81e609f46bed5c1244cf7af6ebef82aa0e65064ad7337c742de7739102432ab",
+      "bytes": 12057
+    },
+    "SY": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1fe.png",
+      "sha256": "7b8c5eba0b2e46f323c26837556c58dc434f606bee949ab3ad1acaa01a4fb18e",
+      "bytes": 12005
+    },
+    "SZ": {
+      "source": "3D/png/128/emoji_u1f1f8_1f1ff.png",
+      "sha256": "cce2d28de03f477bfd12d0cdb728510d2ab6e1ffe203be09db3a06fc670dca0e",
+      "bytes": 16450
+    },
+    "TC": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1e8.png",
+      "sha256": "3b14d4e1a85b675f67ac7a54a662ab6581e20718cceba848be877999bedf3569",
+      "bytes": 14344
+    },
+    "TD": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1e9.png",
+      "sha256": "d4856eec45b3a49fa463664ea4377106c62b4d564b5135bb90f33661827c2037",
+      "bytes": 7221
+    },
+    "TF": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1eb.png",
+      "sha256": "a6cbbb4865e67cf5172a91fbfe8e8819d5cbd6b7b73f957a2549da581c5cfaa2",
+      "bytes": 11691
+    },
+    "TG": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1ec.png",
+      "sha256": "ca86aebf77b59e084de29de82b9e8a5b166b4d23fee2f064079edfe3f74e7bf7",
+      "bytes": 12125
+    },
+    "TH": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1ed.png",
+      "sha256": "d92d91fb992fbd49590ddfabcb5607240b781cbce99e45b38435e379c0b15233",
+      "bytes": 11606
+    },
+    "TJ": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1ef.png",
+      "sha256": "172148175ce61a8461c4b14e419f4ba5bb4a0d6aff66ad73ae2079ee98ffa1a5",
+      "bytes": 11081
+    },
+    "TK": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1f0.png",
+      "sha256": "83b0e01e85d57bed0e3304c2aa69afeb7e89df7bde068196f8f49f26c6d81aee",
+      "bytes": 12126
+    },
+    "TL": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1f1.png",
+      "sha256": "78ae4f3b57ddc016114654ddbe77a0aaf4e5f207629f86491c0e2cc24db32602",
+      "bytes": 10709
+    },
+    "TM": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1f2.png",
+      "sha256": "2a0e0419622d2ecdbb269eb0c3e787297c568e650358b153b1f7e7d31572e731",
+      "bytes": 13433
+    },
+    "TN": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1f3.png",
+      "sha256": "c0af3345fcd42a4cdbbf9e172c9e5c55d51d6fd33a4d7f0e13c4a973a4bf937f",
+      "bytes": 8532
+    },
+    "TO": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1f4.png",
+      "sha256": "a90b03c16e7862ae7c66984140095285869a5666fefa86bd858692727a13ca82",
+      "bytes": 7572
+    },
+    "TR": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1f7.png",
+      "sha256": "3481ccb4277d476a57040c489e2c353b9d262e02295f8f30bbca0fe307748975",
+      "bytes": 8071
+    },
+    "TT": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1f9.png",
+      "sha256": "cc7d1068428dd5818bbdbc0678afdba6e5ebf299c7dd79f7034ed910fbc341e2",
+      "bytes": 12435
+    },
+    "TV": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1fb.png",
+      "sha256": "37adaa28be722b3b153a1536b4001b5b2165b337b16899b8fc37b0d0cb296423",
+      "bytes": 15548
+    },
+    "TW": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1fc.png",
+      "sha256": "0332baf54122f2882594b15259f5cc6707f7c747a40be4e819358180581894ca",
+      "bytes": 7778
+    },
+    "TZ": {
+      "source": "3D/png/128/emoji_u1f1f9_1f1ff.png",
+      "sha256": "99558ebad6ea7d20922565e3a06d143925286955d0153158d371f093f5017e9e",
+      "bytes": 12660
+    },
+    "UA": {
+      "source": "3D/png/128/emoji_u1f1fa_1f1e6.png",
+      "sha256": "033037daf07111c89c15c16eb9b31f916ec289f95db27eed7de8a40af185985c",
+      "bytes": 8244
+    },
+    "UG": {
+      "source": "3D/png/128/emoji_u1f1fa_1f1ec.png",
+      "sha256": "1c5f0d023053ce0792c7f5a162d64ff374c5e1c35d19529267e878dd3dd3d55a",
+      "bytes": 12757
+    },
+    "UM": {
+      "source": "3D/png/128/emoji_u1f1fa_1f1f2.png",
+      "sha256": "d06dbb08193f845ce9f4a011cbe1b25ac8dd8dbd9b6e1807a5115f0809da311d",
+      "bytes": 19048
+    },
+    "US": {
+      "source": "3D/png/128/emoji_u1f1fa_1f1f8.png",
+      "sha256": "d045f7df3a97275f29ca13596b21f86d86b3f262a6e635931552ab43a79624d8",
+      "bytes": 19032
+    },
+    "UY": {
+      "source": "3D/png/128/emoji_u1f1fa_1f1fe.png",
+      "sha256": "11c23be8be6fb6ffb19bb73d2f2527063c31e1517c161b91c49e00aad348d0d9",
+      "bytes": 16696
+    },
+    "UZ": {
+      "source": "3D/png/128/emoji_u1f1fa_1f1ff.png",
+      "sha256": "edda0f7d20b7098e5cbf8f2853a2e42b2dea689e635dccd895a87783b397b7c2",
+      "bytes": 12320
+    },
+    "VA": {
+      "source": "3D/png/128/emoji_u1f1fb_1f1e6.png",
+      "sha256": "a392910027a0482c765a4611f107f3637ffd0284860dc52fdf89f6176772c056",
+      "bytes": 13454
+    },
+    "VC": {
+      "source": "3D/png/128/emoji_u1f1fb_1f1e8.png",
+      "sha256": "08b9114e4acfdbd8f934b5baeed5c3b349551bf56e2b3df60f5171f6a765ef5e",
+      "bytes": 8857
+    },
+    "VE": {
+      "source": "3D/png/128/emoji_u1f1fb_1f1ea.png",
+      "sha256": "948f3078fad81004e9484b14dd1628f21bdf3003c08d3bc9478dcd946cf6c372",
+      "bytes": 11008
+    },
+    "VG": {
+      "source": "3D/png/128/emoji_u1f1fb_1f1ec.png",
+      "sha256": "d20c612dec288f2f2f22cd833ff3ef5ce748180a9223ff763d4d0731167852f9",
+      "bytes": 16003
+    },
+    "VI": {
+      "source": "3D/png/128/emoji_u1f1fb_1f1ee.png",
+      "sha256": "595d5ea8d14e58eea3818f9c61b56edb3660d50c322bb31f9688b5dbb3079085",
+      "bytes": 17647
+    },
+    "VN": {
+      "source": "3D/png/128/emoji_u1f1fb_1f1f3.png",
+      "sha256": "97acd4f44385a7c274632a87538a2cc17fcad33d579aa24050be4bdd80850739",
+      "bytes": 8807
+    },
+    "VU": {
+      "source": "3D/png/128/emoji_u1f1fb_1f1fa.png",
+      "sha256": "efe9d2bf3d633f279de13e01039354c2f7a2a78e8efd91d723969d2885c99215",
+      "bytes": 14479
+    },
+    "WF": {
+      "source": "3D/png/128/emoji_u1f1fc_1f1eb.png",
+      "sha256": "cf02f2c74e6a4f0b52c203e62a0fbf7f4f63a134d3c9c3ed3b8d9eda35fb21ae",
+      "bytes": 9736
+    },
+    "WS": {
+      "source": "3D/png/128/emoji_u1f1fc_1f1f8.png",
+      "sha256": "52d313deb20592fe5039f48880e7dac97f3e9517987180af59b8165def8aba22",
+      "bytes": 9349
+    },
+    "YE": {
+      "source": "3D/png/128/emoji_u1f1fe_1f1ea.png",
+      "sha256": "587b802cddccd85b4f405e9aed85ce5603aeb648a14c897c6308ec42a4230338",
+      "bytes": 9698
+    },
+    "YT": {
+      "source": "3D/png/128/emoji_u1f1fe_1f1f9.png",
+      "sha256": "7341ef14f0280b60f8725397a599ae5854232ef3deb2abc081f07b15f4f150ac",
+      "bytes": 15282
+    },
+    "ZA": {
+      "source": "3D/png/128/emoji_u1f1ff_1f1e6.png",
+      "sha256": "b3c22e75acd977a873cc8c265338baf8b43c6a9248d2192d0cd5a8d335155c0d",
+      "bytes": 14700
+    },
+    "ZM": {
+      "source": "3D/png/128/emoji_u1f1ff_1f1f2.png",
+      "sha256": "131a7f5665751cca6237a8a5e913dcf99b8882ee8741d098f250f69374522f43",
+      "bytes": 9249
+    },
+    "ZW": {
+      "source": "3D/png/128/emoji_u1f1ff_1f1fc.png",
+      "sha256": "bd64f81820e129c0fc6287dd52ef51cf91a179cdf7afa0e417f5a61a3ae2f352",
+      "bytes": 14241
+    }
+  }
+}

@@ -6,7 +6,14 @@ import '../../../../app/app_theme.dart';
 import '../../data/models/server_profile_model.dart';
 import '../notifiers/servers_notifier.dart';
 import '../widgets/server_list_tile.dart';
+import '../widgets/latency_test_action.dart';
+import '../../../../app/l10n/strings.dart';
+import '../../../subscriptions/data/services/subscription_order.dart';
+import '../../../subscriptions/data/services/subscription_policy.dart';
+import '../../../connection/domain/entities/connection_state.dart';
+import '../../../connection/presentation/notifiers/connection_notifier.dart';
 import '../../../subscriptions/presentation/screens/subscriptions_screen.dart';
+import '../../../subscriptions/presentation/widgets/subscription_refresh_action.dart';
 
 class ServersScreen extends ConsumerStatefulWidget {
   const ServersScreen({super.key});
@@ -16,7 +23,6 @@ class ServersScreen extends ConsumerStatefulWidget {
 
 class _ServersScreenState extends ConsumerState<ServersScreen> {
   final Set<String> _collapsed = {};
-  bool _testingAll = false;
 
   @override
   Widget build(BuildContext context) {
@@ -24,48 +30,35 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
     final subsState = ref.watch(subscriptionsProvider).value;
     final subs = subsState?.subs ?? [];
     final selected = ref.watch(selectedServerProvider);
+    final strings = ref.watch(stringsProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Servers'),
+        title: Text(strings.serversTitle),
         actions: [
           if (servers.value?.isNotEmpty == true) ...[
             // Refresh all subscriptions
             if (subsState?.subs.isNotEmpty == true)
-              IconButton(
-                icon: const Icon(Icons.sync),
-                tooltip: 'Refresh subscriptions',
-                onPressed: () => ref.read(subscriptionsProvider.notifier).refreshAll(),
-              ),
-            // Test all latency
-            _testingAll
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: SizedBox(
-                      width: 20, height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.network_ping),
-                    tooltip: 'Test all latency',
-                    onPressed: _testAll,
-                  ),
+              const SubscriptionRefreshAction(),
+            const LatencyTestAction(),
           ],
           IconButton(
             icon: const Icon(Icons.add),
+            tooltip: strings.importServerTooltip,
             onPressed: () => context.push('/converter'),
           ),
         ],
       ),
       body: servers.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (_, __) => Center(child: Text(strings.serversLoadFailed)),
         data: (list) {
-          if (list.isEmpty) return _EmptyState(onAdd: () => context.push('/converter'));
+          if (list.isEmpty)
+            return _EmptyState(onAdd: () => context.push('/converter'));
 
           final subNames = <String, String>{
-            for (final s in subs) s.url: s.name.isNotEmpty ? s.name : _hostFromUrl(s.url),
+            for (final s in subs)
+              s.url: s.name.isNotEmpty ? s.name : _hostFromUrl(s.url),
           };
 
           final groups = <String, List<ServerProfileModel>>{};
@@ -73,12 +66,7 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
             (groups[s.subscriptionId] ??= []).add(s);
           }
 
-          final keys = groups.keys.toList()
-            ..sort((a, b) {
-              if (a.isEmpty) return -1;
-              if (b.isEmpty) return 1;
-              return a.compareTo(b);
-            });
+          final keys = orderedSubscriptionGroups(groups.keys, subs);
 
           return ListView.builder(
             padding: const EdgeInsets.only(top: 8, bottom: 80),
@@ -87,7 +75,9 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
               final key = keys[gi];
               final group = groups[key]!;
               final isCollapsed = _collapsed.contains(key);
-              final label = key.isEmpty ? 'Manual' : (subNames[key] ?? _hostFromUrl(key));
+              final label = key.isEmpty
+                  ? strings.manualGroup
+                  : (subNames[key] ?? _hostFromUrl(key));
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -98,20 +88,31 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                     isManual: key.isEmpty,
                     isCollapsed: isCollapsed,
                     onToggle: () => setState(() {
-                      if (isCollapsed) _collapsed.remove(key); else _collapsed.add(key);
+                      if (isCollapsed)
+                        _collapsed.remove(key);
+                      else
+                        _collapsed.add(key);
                     }),
-                    onDeleteGroup: () => _confirmDeleteGroup(context, ref, label, group, key),
+                    onDeleteGroup: () =>
+                        _confirmDeleteGroup(context, ref, label, group, key),
                   ),
                   if (!isCollapsed)
-                    ...group.map((s) => ServerListTile(
-                      server: s,
-                      isSelected: s.id == selected?.id,
-                      onTap: () => ref.read(serversNotifierProvider.notifier).selectServer(s),
-                      onDelete: () => _confirmDelete(ctx, ref, s),
-                      onTapDetail: () => ctx.push('/servers/${s.id}'),
-                    )),
+                    ...group.map(
+                      (s) => ServerListTile(
+                        server: s,
+                        isSelected: s.id == selected?.id,
+                        onTap: () => ref
+                            .read(serversNotifierProvider.notifier)
+                            .selectServer(s),
+                        onDelete: () => _confirmDelete(ctx, ref, s),
+                        onTapDetail: () => ctx.push('/servers/${s.id}'),
+                      ),
+                    ),
                   if (gi < keys.length - 1)
-                    Divider(height: 1, color: Theme.of(context).colorScheme.outlineVariant),
+                    Divider(
+                      height: 1,
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
                 ],
               );
             },
@@ -121,64 +122,143 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
     );
   }
 
-  void _confirmDeleteGroup(BuildContext ctx, WidgetRef ref, String label,
-      List<ServerProfileModel> group, String subscriptionId) {
+  void _confirmDeleteGroup(
+    BuildContext ctx,
+    WidgetRef ref,
+    String label,
+    List<ServerProfileModel> group,
+    String subscriptionId,
+  ) {
+    final strings = ref.read(stringsProvider);
     showDialog(
       context: ctx,
       builder: (c) => AlertDialog(
-        title: Text('Delete "$label"?'),
-        content: Text('Remove all ${group.length} servers'
-            '${subscriptionId.isNotEmpty ? ' and unsubscribe' : ''}?'),
+        title: Text(strings.deleteGroupTitle(label)),
+        content: Text(
+          strings.deleteGroupContent(group.length, subscriptionId.isNotEmpty),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(strings.cancelButton),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: NexColors.error),
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(c);
-              if (subscriptionId.isNotEmpty) {
-                // Find and delete via subscription (removes servers + sub entry)
-                final subs = ref.read(subscriptionsProvider).value?.subs ?? [];
-                final sub = subs.where((s) => s.url == subscriptionId).firstOrNull;
-                if (sub != null) {
-                  ref.read(subscriptionsProvider.notifier).delete(sub.id);
-                  return;
+              final active = ref.read(connectionNotifierProvider).activeServer;
+              final affectsActive =
+                  active != null &&
+                  (group.any((server) => server.id == active.id) ||
+                      (subscriptionId.isNotEmpty &&
+                          active.subscriptionId == subscriptionId));
+              if (!await _stopBeforeDelete(affectsActive, strings)) return;
+              try {
+                if (subscriptionId.isNotEmpty) {
+                  // Find and delete via subscription (removes servers + sub entry)
+                  final subs =
+                      ref.read(subscriptionsProvider).value?.subs ?? [];
+                  final sub = subs
+                      .where((s) => s.url == subscriptionId)
+                      .firstOrNull;
+                  if (sub != null) {
+                    await ref
+                        .read(subscriptionsProvider.notifier)
+                        .delete(sub.id);
+                    return;
+                  }
                 }
+                // Manual group or subscription not found — delete servers directly
+                await ref
+                    .read(serversNotifierProvider.notifier)
+                    .deleteAll(
+                      group.map((s) => s.id).toList(),
+                      expectedSubscriptionId: subscriptionId,
+                    );
+              } catch (_) {
+                _showDeleteFailure(strings);
               }
-              // Manual group or subscription not found — delete servers directly
-              ref.read(serversNotifierProvider.notifier).deleteAll(group.map((s) => s.id).toList());
             },
-            child: const Text('Delete'),
+            child: Text(strings.deleteButton),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _testAll() async {
-    setState(() => _testingAll = true);
-    await ref.read(serversNotifierProvider.notifier).testAllLatency();
-    if (mounted) setState(() => _testingAll = false);
   }
 
   void _confirmDelete(BuildContext ctx, WidgetRef ref, ServerProfileModel s) {
+    final strings = ref.read(stringsProvider);
     showDialog<bool>(
       context: ctx,
       builder: (c) => AlertDialog(
-        title: const Text('Delete server?'),
-        content: Text('Remove "${s.name.isNotEmpty ? s.name : s.host}"?'),
+        title: Text(strings.deleteServerTitle),
+        content: Text(
+          strings.deleteServerContent(s.name.isNotEmpty ? s.name : s.host),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(strings.cancelButton),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: NexColors.error),
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(c);
-              ref.read(serversNotifierProvider.notifier).delete(s.id);
+              final active = ref.read(connectionNotifierProvider).activeServer;
+              final deletingFreeSlot =
+                  normalizeSubscriptionUrl(s.subscriptionId) ==
+                  builtInSubscriptionUrl;
+              final affectsActive =
+                  active != null &&
+                  (active.id == s.id ||
+                      (deletingFreeSlot &&
+                          normalizeSubscriptionUrl(active.subscriptionId) ==
+                              builtInSubscriptionUrl));
+              if (!await _stopBeforeDelete(affectsActive, strings)) return;
+              try {
+                await ref
+                    .read(serversNotifierProvider.notifier)
+                    .delete(s.id, expectedSubscriptionId: s.subscriptionId);
+              } catch (_) {
+                _showDeleteFailure(strings);
+              }
             },
-            child: const Text('Delete'),
+            child: Text(strings.deleteButton),
           ),
         ],
       ),
     );
+  }
+
+  // Same acknowledged-stop guard as the Connection screen. Never treat a
+  // dismissed confirmation dialog as permission to drop an active session.
+  Future<bool> _stopBeforeDelete(bool affectsActive, S strings) async {
+    if (!affectsActive) return mounted;
+    try {
+      await ref.read(connectionNotifierProvider.notifier).disconnect();
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.vpnStopFailed)));
+      return false;
+    }
+    if (!mounted) return false;
+    if (ref.read(connectionNotifierProvider).status !=
+        ConnectionStatus.disconnected) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.vpnStopFailed)));
+      return false;
+    }
+    return true;
+  }
+
+  void _showDeleteFailure(S strings) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(strings.settingsSaveFailed)));
   }
 
   static String _hostFromUrl(String url) {
@@ -220,7 +300,8 @@ class _GroupHeader extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 8, height: 8,
+              width: 8,
+              height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: isManual ? cs.outline : NexPalette.accent,
@@ -246,7 +327,11 @@ class _GroupHeader extends StatelessWidget {
               ),
               child: Text(
                 '$count',
-                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, fontWeight: FontWeight.w500),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
             Icon(
@@ -259,7 +344,11 @@ class _GroupHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               child: Padding(
                 padding: const EdgeInsets.all(6),
-                child: Icon(Icons.delete_sweep_outlined, size: 18, color: cs.error.withOpacity(0.6)),
+                child: Icon(
+                  Icons.delete_sweep_outlined,
+                  size: 18,
+                  color: cs.error.withValues(alpha: 0.6),
+                ),
               ),
             ),
           ],
@@ -271,26 +360,34 @@ class _GroupHeader extends StatelessWidget {
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends ConsumerWidget {
   final VoidCallback onAdd;
   const _EmptyState({required this.onAdd});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(stringsProvider);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.dns_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
+          Icon(
+            Icons.dns_outlined,
+            size: 64,
+            color: Theme.of(context).colorScheme.outline,
+          ),
           const SizedBox(height: 16),
-          const Text('No servers yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          Text(
+            strings.noServersYet,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          const Text('Import a proxy link or subscription URL', style: TextStyle(fontSize: 14)),
+          Text(strings.noServersSubtitle, style: const TextStyle(fontSize: 14)),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: onAdd,
             icon: const Icon(Icons.add),
-            label: const Text('Import Server'),
+            label: Text(strings.importServerButton),
           ),
         ],
       ),

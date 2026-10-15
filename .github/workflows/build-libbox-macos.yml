@@ -1,0 +1,130 @@
+name: macOS libbox framework preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-framework:
+    if: github.repository == 'HoneyVPN/honeyproxyutility-'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Configure isolated Go directories
+        run: |
+          echo "GOPATH=$RUNNER_TEMP/honeyproxy-go" >> "$GITHUB_ENV"
+          echo "GOCACHE=$RUNNER_TEMP/honeyproxy-go-cache" >> "$GITHUB_ENV"
+          echo "GOMODCACHE=$RUNNER_TEMP/honeyproxy-go-modules" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read the reviewed core build lock
+        id: core
+        shell: python
+        run: |
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          from core_manifest import load_manifest
+          core = load_manifest()['sing_box']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, value in {'repository': core['repository'], 'revision': core['revision'],
+                                 'tag': core['tag'], 'go': core['apple']['go'],
+                                 'gomobile': core['apple']['gomobile']}.items():
+                  output.write(key + '=' + value + '\n')
+      - name: Fetch the pinned public core without client submodules
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          # The pinned repository has a client gitlink without a .gitmodules URL.
+          # The framework builder only needs the root tree; avoid checkout's submodule cleanup.
+          git init work/libbox-source
+          git -C work/libbox-source remote add origin "${{ steps.core.outputs.repository }}"
+          git -C work/libbox-source -c submodule.recurse=false fetch --no-tags --depth=1 origin "${{ steps.core.outputs.revision }}"
+          git -C work/libbox-source -c submodule.recurse=false checkout --detach FETCH_HEAD
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '${{ steps.core.outputs.go }}'
+          cache: false
+      - name: Install the pinned mobile binding toolchain
+        run: |
+          go install "github.com/sagernet/gomobile/cmd/gomobile@${{ steps.core.outputs.gomobile }}"
+          go install "github.com/sagernet/gomobile/cmd/gobind@${{ steps.core.outputs.gomobile }}"
+          echo "$GOPATH/bin" >> "$GITHUB_PATH"
+      - name: Pin version and validated protocol feature set
+        run: |
+          git -C work/libbox-source tag "${{ steps.core.outputs.tag }}"
+          python3 scripts/prepare_apple_core.py work/libbox-source
+      - name: Build unsigned macOS XCFramework and Objective-C headers
+        working-directory: work/libbox-source
+        run: go run ./cmd/internal/build_libbox -target apple -platform macos
+      - name: Validate framework output and package provenance
+        run: |
+          test -f work/libbox-source/Libbox.xcframework/Info.plist
+          test -n "$(find work/libbox-source/Libbox.xcframework -name Libbox.h -print -quit)"
+          mkdir -p build/apple-core-preview
+          ditto -c -k --sequesterRsrc --keepParent work/libbox-source/Libbox.xcframework build/apple-core-preview/Libbox-macOS-preview.zip
+          cp work/libbox-source/apple-core-build.json build/apple-core-preview/
+          shasum -a 256 build/apple-core-preview/Libbox-macOS-preview.zip > build/apple-core-preview/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Libbox-macOS-framework-headers-preview
+          path: build/apple-core-preview/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stage the verified static framework for the packet provider
+        run: python3 scripts/prepare_apple_framework.py work/libbox-source/Libbox.xcframework work/libbox-source/apple-core-build.json
+      - name: Check the internal traffic tracker against the actual linked core
+        run: |
+          apple_framework_dir="$(python3 -c 'import pathlib,plistlib; p=pathlib.Path("macos/Frameworks/Libbox.xcframework"); i=plistlib.loads((p/"Info.plist").read_bytes()); s=next(s for s in i["AvailableLibraries"] if s["SupportedPlatform"]=="macos" and not s.get("SupportedPlatformVariant")); print(p/s["LibraryIdentifier"])')"
+          swiftc -swift-version 5 -F "$apple_framework_dir" \
+            macos/HoneyProxyPacketTunnel/AppleProviderStatus.swift test/native/apple_core_configuration_check.swift \
+            -framework Libbox -framework Security -framework CoreFoundation -lresolv \
+            -o "$RUNNER_TEMP/apple-core-configuration-check"
+          "$RUNNER_TEMP/apple-core-configuration-check"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.7'
+          channel: stable
+          cache: true
+      - name: Prepare locked Flutter and CocoaPods configuration
+        run: |
+          flutter pub get --enforce-lockfile
+          python3 scripts/validate_apple_foundation.py
+          flutter build macos --release --config-only --no-pub
+      - name: Check native dual-stack settings mapping
+        run: |
+          swiftc macos/HoneyProxyPacketTunnel/TunnelNetworkSettingsMapper.swift test/native/apple_tunnel_settings_check.swift -o "$RUNNER_TEMP/apple-settings-check"
+          "$RUNNER_TEMP/apple-settings-check"
+          swiftc macos/HoneyProxyPacketTunnel/TunnelSettingsCoordinator.swift test/native/apple_settings_lifecycle_check.swift -o "$RUNNER_TEMP/apple-lifecycle-check"
+          "$RUNNER_TEMP/apple-lifecycle-check"
+          swiftc macos/Shared/OwnedSessionConfiguration.swift test/native/apple_session_cleanup_check.swift -o "$RUNNER_TEMP/apple-session-check"
+          "$RUNNER_TEMP/apple-session-check"
+          swiftc -swift-version 5 macos/Runner/AppleVpnStatusSnapshot.swift test/native/apple_status_snapshot_check.swift -o "$RUNNER_TEMP/apple-status-check"
+          "$RUNNER_TEMP/apple-status-check"
+          swiftc -swift-version 5 macos/HoneyProxyPacketTunnel/AppleProviderStatus.swift test/native/apple_provider_status_check.swift -o "$RUNNER_TEMP/apple-counter-check"
+          "$RUNNER_TEMP/apple-counter-check"
+          swiftc -swift-version 5 macos/Shared/DevelopmentVpnGate.swift test/native/apple_development_gate_check.swift -o "$RUNNER_TEMP/apple-release-gate-check"
+          "$RUNNER_TEMP/apple-release-gate-check"
+          swiftc -swift-version 5 -D DEBUG -D HONEYPROXY_DEVELOPMENT_VPN macos/Shared/DevelopmentVpnGate.swift test/native/apple_development_gate_check.swift -o "$RUNNER_TEMP/apple-development-gate-check"
+          "$RUNNER_TEMP/apple-development-gate-check"
+      - name: Compile the unsigned host with the actual pinned adapter and core
+        run: |
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \
+            -configuration Release -destination 'generic/platform=macOS' \
+            -derivedDataPath build/macos-core-preview \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Verify core linkage and package the unavailable VPN preview
+        run: |
+          python3 scripts/validate_apple_bundle.py build/macos-core-preview/Build/Products/Release/HoneyProxyUtility.app work/libbox-source/apple-core-build.json
+          mkdir -p build/preview-artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos-core-preview/Build/Products/Release/HoneyProxyUtility.app \
+            build/preview-artifacts/HoneyProxyUtility-macOS-core-preview-unavailable.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-core-preview-VPN-unavailable
+          path: build/preview-artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 14

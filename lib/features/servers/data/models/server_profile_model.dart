@@ -45,6 +45,17 @@ class ServerProfileModel {
     isFavorite: isFavorite ?? this.isFavorite,
   );
 
+  /// Stored IDs can be reused after deletion. Presentation state updates keep
+  /// this identity, while another profile or connection configuration does not.
+  bool hasSameConnectionIdentity(ServerProfileModel other) =>
+      id == other.id &&
+      protocol == other.protocol &&
+      host == other.host &&
+      port == other.port &&
+      configJson == other.configJson &&
+      subscriptionId == other.subscriptionId &&
+      addedAt == other.addedAt;
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'protocol': protocol,
@@ -59,23 +70,26 @@ class ServerProfileModel {
     'isFavorite': isFavorite,
   };
 
-  factory ServerProfileModel.fromJson(Map<String, dynamic> m) => ServerProfileModel(
-    id: m['id'] as int,
-    protocol: m['protocol'] as String,
-    name: m['name'] as String,
-    host: m['host'] as String,
-    port: m['port'] as int,
-    configJson: m['configJson'] as String,
-    subscriptionId: (m['subscriptionId'] as String?) ?? '',
-    addedAt: DateTime.parse(m['addedAt'] as String),
-    latencyMs: (m['latencyMs'] as num?)?.toDouble(),
-    isSelected: (m['isSelected'] as bool?) ?? false,
-    isFavorite: (m['isFavorite'] as bool?) ?? false,
-  );
+  factory ServerProfileModel.fromJson(Map<String, dynamic> m) =>
+      ServerProfileModel(
+        id: m['id'] as int,
+        protocol: m['protocol'] as String,
+        name: m['name'] as String,
+        host: m['host'] as String,
+        port: m['port'] as int,
+        configJson: m['configJson'] as String,
+        subscriptionId: (m['subscriptionId'] as String?) ?? '',
+        addedAt: DateTime.parse(m['addedAt'] as String),
+        latencyMs: (m['latencyMs'] as num?)?.toDouble(),
+        isSelected: (m['isSelected'] as bool?) ?? false,
+        isFavorite: (m['isFavorite'] as bool?) ?? false,
+      );
 
   static List<ServerProfileModel> listFromJson(String jsonStr) {
     final list = json.decode(jsonStr) as List<dynamic>;
-    return list.map((e) => ServerProfileModel.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => ServerProfileModel.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   static String listToJson(List<ServerProfileModel> models) =>

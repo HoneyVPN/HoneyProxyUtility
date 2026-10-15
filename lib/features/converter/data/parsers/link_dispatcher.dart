@@ -7,6 +7,8 @@ import 'hysteria2_parser.dart';
 import 'tuic_parser.dart';
 import 'wireguard_parser.dart';
 import 'amneziawg_parser.dart';
+import 'amnezia_vpnlink_parser.dart';
+import 'wg_quick_support.dart';
 import 'naive_parser.dart';
 import 'shadowtls_parser.dart';
 import '../../domain/entities/parsed_proxy.dart';
@@ -21,6 +23,7 @@ class LinkDispatcher {
     TuicParser(),
     TrojanParser(),
     ShadowsocksParser(),
+    AmneziaVpnLinkParser(),
     AmneziaWGParser(),
     WireGuardParser(),
     NaiveParser(),
@@ -34,6 +37,17 @@ class LinkDispatcher {
   ParsedProxy dispatch(String rawLink) {
     final trimmed = rawLink.trim();
     if (trimmed.isEmpty) throw const ParseException('Empty link');
+    if (trimmed.startsWith('hysteria://')) {
+      throw const UnsupportedConfigurationException(
+        'Hysteria 1 is unsupported by this app. Use a Hysteria 2 profile.',
+      );
+    }
+    if (trimmed.startsWith('hysteria2+realm') ||
+        trimmed.startsWith('hy2+realm')) {
+      throw const UnsupportedConfigurationException(
+        'Hysteria2 realm is unsupported by this core.',
+      );
+    }
 
     for (final parser in _parsers) {
       if (parser.canParse(trimmed)) {
@@ -46,12 +60,19 @@ class LinkDispatcher {
   /// Parse multiple links separated by newlines (e.g. from clipboard).
   /// Silently skips unparseable lines and returns successfully parsed ones.
   List<ParsedProxy> dispatchMultiple(String rawText) {
+    // A configuration block is one server, never a list of independent links.
+    // Parsing it line by line used to import a phantom "WG :51820" server.
+    if (isWgQuickConfig(rawText)) {
+      return [dispatch(rawText)];
+    }
     final results = <ParsedProxy>[];
     for (final line in rawText.split('\n')) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
       try {
         results.add(dispatch(trimmed));
+      } on UnsupportedConfigurationException {
+        rethrow;
       } catch (_) {
         // skip unparseable lines
       }

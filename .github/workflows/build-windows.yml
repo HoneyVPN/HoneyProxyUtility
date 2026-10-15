@@ -1,36 +1,42 @@
 name: Build Windows
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-windows:
-    runs-on: windows-latest
-    if: github.repository == 'HoneyVPN/honeyproxyutility-'
+    # permission_handler_windows 0.2.1 still uses experimental /await.
+    # Build with VS 2022 until that plugin adopts standard C++ coroutines.
+    runs-on: windows-2022
+    if: github.repository == 'HoneyVPN/honeyproxyutility-' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Immutable125 installer/guard are compared without installing125.
+          fetch-depth: 0
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2.14.0
         with:
           cache: false
+          flutter-version: '3.41.7'
+          channel: stable
 
-      - name: Patch pubspec — add Windows stubs
+      - name: Validate release version
+        id: metadata
+        run: python scripts/release_metadata.py --platform windows
+
+      - name: Patch pubspec — add Windows QR scanner stub
         shell: python
         run: |
           with open("pubspec.yaml", "r", encoding="utf-8") as f:
               content = f.read()
           override = (
               "\ndependency_overrides:\n"
-              "  flutter_v2ray:\n"
-              "    path: windows/flutter_v2ray_stub\n"
               "  mobile_scanner:\n"
               "    path: windows/mobile_scanner_stub\n"
           )
@@ -48,20 +54,104 @@ jobs:
       - name: Build Windows release
         run: flutter build windows --release
 
+      - name: Verify bundled Microsoft Visual C++ runtime
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test\native\windows_runtime_signature_test.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Microsoft runtime signature policy regression failed" }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts\verify_windows_runtime.ps1 -BundleDirectory "build\windows\x64\runner\Release"
+          if ($LASTEXITCODE -ne 0) { throw "Bundled Microsoft runtime verification failed" }
+
+      - name: Check right-side startup panel geometry and read-only monitor APIs
+        shell: powershell
+        run: |
+          cmake -S test/native/windows_window -B build/windows-window-tests -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Window geometry fixture configure failed" }
+          cmake --build build/windows-window-tests --config Release
+          if ($LASTEXITCODE -ne 0) { throw "Window geometry fixture build failed" }
+          & build\windows-window-tests\Release\window_placement_test.exe
+          if ($LASTEXITCODE -ne 0) { throw "Startup window placement regression failed" }
+
+      - name: Check native session path guard without subprocess polling
+        shell: powershell
+        run: |
+          cmake -S test/native/windows_path -B build/windows-path-tests -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Native path fixture configure failed" }
+          cmake --build build/windows-path-tests --config Release
+          if ($LASTEXITCODE -ne 0) { throw "Native path fixture build failed" }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test\native\windows_path\windows_path_test.ps1 -Executable "$PWD\build\windows-path-tests\Release\windows_session_path_test.exe" -Application "$PWD\build\windows\x64\runner\Release\HoneyProxyUtility.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Native path guard regression failed" }
+
+      - name: Check service client authentication, framing and cancellation
+        shell: powershell
+        run: |
+          cmake -S test/native/windows_service_client -B build/windows-service-client-tests -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Service client fixture configure failed" }
+          cmake --build build/windows-service-client-tests --config Release
+          if ($LASTEXITCODE -ne 0) { throw "Service client fixture build failed" }
+          & "build\windows-service-client-tests\Release\windows_service_client_test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Service client authentication regression failed" }
+
+      - name: Check owned Windows latency processes and cancellation
+        shell: powershell
+        run: |
+          cmake -S test/native/windows_latency -B build/windows-latency-tests -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Latency fixture configure failed" }
+          cmake --build build/windows-latency-tests --config Release
+          if ($LASTEXITCODE -ne 0) { throw "Latency fixture build failed" }
+          & "build\windows-latency-tests\Release\windows_latency_process_test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Latency ownership regression failed" }
+
+      - name: Check privileged installation directory safeguards
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test\native\windows_installation_guard_test.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Privileged installation guard regression failed" }
+
+      - name: Check Windows import IPC, activation and peer identity
+        shell: powershell
+        run: |
+          cmake -S test/native/windows_import -B build/windows-import-tests -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Windows import fixture configure failed" }
+          cmake --build build/windows-import-tests --config Release
+          if ($LASTEXITCODE -ne 0) { throw "Windows import fixture build failed" }
+          & "build\windows-import-tests\Release\windows_import_test.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Windows import IPC/activation regression failed" }
+
       - name: Download sing-box
         shell: powershell
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -B scripts/prepare_cli_core.py --platform windows-amd64 --output "build\windows\x64\runner\Release"
+
+      - name: Check packaged session supervisor and crash recovery
+        shell: powershell
         run: |
-          $headers = @{ "Authorization" = "Bearer $env:GITHUB_TOKEN"; "User-Agent" = "GitHub-Actions" }
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/latest" -Headers $headers
-          $asset = ($release.assets | Where-Object { $_.name -like "*windows-amd64.zip" })[0]
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "singbox.zip" -Headers $headers
-          Expand-Archive -Path "singbox.zip" -DestinationPath "build\windows\singbox" -Force
-          $exe = Get-ChildItem -Recurse "build\windows\singbox" -Filter "sing-box.exe" | Select-Object -First 1
-          Copy-Item $exe.FullName "build\windows\x64\runner\Release\sing-box.exe"
-          $dll = Get-ChildItem -Recurse "build\windows\singbox" -Filter "wintun.dll" | Select-Object -First 1
-          if ($dll) { Copy-Item $dll.FullName "build\windows\x64\runner\Release\wintun.dll" }
+          if (!(Test-Path "build\windows\x64\runner\Release\windows_vpn_supervisor.ps1")) {
+            throw "Packaged Windows VPN supervisor is missing"
+          }
+          $supervisorPath = (Resolve-Path "build\windows\x64\runner\Release\windows_vpn_supervisor.ps1").Path
+          $packagedHash = Get-FileHash -Algorithm SHA256 -LiteralPath $supervisorPath
+          $sourceHash = Get-FileHash -Algorithm SHA256 -LiteralPath "windows\runner\windows_vpn_supervisor.ps1"
+          if ($packagedHash.Hash -ne $sourceHash.Hash) { throw "Packaged supervisor does not match the reviewed source" }
+          $proxyApiPath = "build\windows\x64\runner\Release\windows_proxy_settings.cs"
+          if (!(Test-Path $proxyApiPath)) { throw "Packaged WinINet proxy helper is missing" }
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $proxyApiPath).Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath "windows\runner\windows_proxy_settings.cs").Hash) { throw "Packaged WinINet proxy helper differs from the reviewed source" }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test\native\windows_session_supervisor_test.ps1 -Supervisor $supervisorPath
+          if ($LASTEXITCODE -ne 0) { throw "Windows session supervisor regression failed" }
+
+      - name: Check configurations with the packaged Windows core
+        shell: powershell
+        run: |
+          $env:SINGBOX_CHECK_TARGET = "windows"
+          $env:SINGBOX_WINDOWS_CHECK_BINARY = (Resolve-Path "build\windows\x64\runner\Release\sing-box.exe").Path
+          $env:CORE_CONFIG_OUTPUT_DIR = (New-Item -ItemType Directory -Force -Path "build\windows-core-configs").FullName
+          flutter test test\unit\connection\core_compatibility_test.dart test\unit\connection\windows_runtime_config_test.dart test\unit\connection\windows_settings_contract_test.dart --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw "Packaged VPN core rejected a configuration" }
+
+      - name: Check service configuration isolation, owner ACL and scoped shutdown
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test\native\windows_service\check_service.ps1 -OutputDirectory "build\windows-service-tests" -CoreConfigurationDirectory "build\windows-core-configs"
+          if ($LASTEXITCODE -ne 0) { throw "Windows service security/configuration regression failed" }
 
       - name: Create installer output directory
         shell: powershell
@@ -73,28 +163,46 @@ jobs:
       - name: Build installer
         shell: powershell
         run: |
-          $ver = "${{ github.ref_name }}".TrimStart("v")
-          if ($ver -eq "${{ github.ref_name }}") { $ver = "0.0.0" }
+          $ver = "${{ steps.metadata.outputs.version }}"
           iscc windows\installer.iss "/DAppVer=$ver"
+
+      - name: Require actual Setup orphan recovery fresh update uninstall and reinstall
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test\native\windows_installer_smoke.ps1 -Setup "build\windows\installer\HoneyProxyUtility-Setup.exe" -Version "${{ steps.metadata.outputs.version }}" -OutputDirectory "build\windows-installer-smoke"
+          if ($LASTEXITCODE -ne 0) { throw "Actual Windows Setup regression gate failed; no artifact may be uploaded" }
+
+      - name: Preserve actual Setup diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoneyProxyUtility-Windows-Setup-Smoke-Logs
+          path: build\windows-installer-smoke\*.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: HoneyProxyUtility-Windows-Setup
           path: build\windows\installer\HoneyProxyUtility-Setup.exe
-          retention-days: 30
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Deploy EXE to honeyvpn.ru
+        # Publication is disabled here; release both reviewed assets separately.
+        if: ${{ false }}
         shell: powershell
         run: |
           $token = "${{ secrets.DEPLOY_TOKEN }}"
-          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $tag = "${{ steps.metadata.outputs.version }}"
           $file = "build\windows\installer\HoneyProxyUtility-Setup.exe"
           $uri = "https://api.honeyvpn.ru/deploy/windows"
           curl.exe -X POST $uri -H "X-Deploy-Token: $token" -H "X-Version: $tag" -F "file=@$file" --fail --show-error --max-time 300
 
       - name: Create GitHub Release (public repo)
-        if: startsWith(github.ref, 'refs/tags/')
+        # Publication is disabled here; release both reviewed assets separately.
+        if: ${{ false }}
         env:
           GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
         shell: powershell
@@ -106,8 +214,13 @@ jobs:
           gh release view $tag --repo $repo 2>$null
           $releaseExists = $LASTEXITCODE -eq 0
           $ErrorActionPreference = "Stop"
-          if ($releaseExists) {
-            gh release upload $tag "build\windows\installer\HoneyProxyUtility-Setup.exe" --repo $repo --clobber
-          } else {
-            gh release create $tag "build\windows\installer\HoneyProxyUtility-Setup.exe#HoneyProxyUtility-Setup.exe" --repo $repo --title "HoneyProxyUtility $tag" --generate-notes @preArgs
+          if (!$releaseExists) {
+            gh release create $tag --repo $repo --title "HoneyProxyUtility $tag" --generate-notes @preArgs
+            if ($LASTEXITCODE -ne 0) {
+              # Android may create the same release between view and create.
+              gh release view $tag --repo $repo
+              if ($LASTEXITCODE -ne 0) { throw "Could not create or find release $tag" }
+            }
           }
+          gh release upload $tag "build\windows\installer\HoneyProxyUtility-Setup.exe" --repo $repo --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload Windows installer" }

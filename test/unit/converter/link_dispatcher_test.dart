@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import '../../../lib/features/converter/data/parsers/link_dispatcher.dart';
 import '../../../lib/features/converter/data/parsers/base_parser.dart';
@@ -47,7 +47,10 @@ void main() {
     });
 
     test('throws UnsupportedProtocolException for unknown scheme', () {
-      expect(() => dispatcher.dispatch('http://example.com'), throwsA(isA<UnsupportedProtocolException>()));
+      expect(
+        () => dispatcher.dispatch('http://example.com'),
+        throwsA(isA<UnsupportedProtocolException>()),
+      );
     });
 
     test('throws ParseException for empty input', () {
@@ -57,7 +60,8 @@ void main() {
     test('dispatchMultiple skips bad lines and returns good ones', () {
       final payload = {'add': '1.2.3.4', 'port': 443, 'id': 'uuid'};
       final b64 = base64.encode(utf8.encode(json.encode(payload)));
-      final text = '''
+      final text =
+          '''
 vmess://$b64
 this_is_invalid
 vless://uuid@host.com:443?security=tls#Test

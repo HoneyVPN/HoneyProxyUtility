@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'base_parser.dart';
+import 'wg_quick_support.dart';
 import '../../domain/entities/parsed_proxy.dart';
 
 /// Parses wg-quick compatible config blocks embedded as a URI-like string
@@ -19,19 +20,18 @@ class WireGuardParser extends BaseProxyParser<WireGuardConfig> {
 
   @override
   bool canParse(String rawLink) =>
-      rawLink.startsWith('wireguard://') ||
-      rawLink.startsWith('[Interface]');
+      rawLink.startsWith('wireguard://') || isWgQuickConfig(rawLink);
 
   @override
   WireGuardConfig parse(String rawLink) {
-    if (rawLink.startsWith('[Interface]')) {
+    if (isWgQuickConfig(rawLink)) {
       return _parseWgQuick(rawLink);
     }
     return _parseWgUri(rawLink);
   }
 
   WireGuardConfig _parseWgUri(String rawLink) {
-    final uri = Uri.tryParse(rawLink.replaceFirst('wireguard://', 'https://'));
+    final uri = Uri.tryParse(rawLink);
     if (uri == null) throw const ParseException('Malformed WireGuard URI');
 
     final p = uri.queryParameters;
@@ -68,7 +68,10 @@ class WireGuardParser extends BaseProxyParser<WireGuardConfig> {
     // Standard URI format
     final privateKey = p['privateKey'] ?? p['private_key'] ?? '';
     final publicKey = p['publicKey'] ?? p['public_key'] ?? uri.userInfo;
-    final addresses = (p['address'] ?? '').split(',').where((s) => s.isNotEmpty).toList();
+    final addresses = (p['address'] ?? '')
+        .split(',')
+        .where((s) => s.isNotEmpty)
+        .toList();
     final dns = (p['dns'] ?? '').split(',').where((s) => s.isNotEmpty).toList();
 
     return WireGuardConfig(
@@ -86,36 +89,63 @@ class WireGuardParser extends BaseProxyParser<WireGuardConfig> {
   }
 
   WireGuardConfig _parseWgQuick(String raw) {
-    final lines = raw.split('\n').map((l) => l.trim()).toList();
+    final lines = raw
+        .replaceFirst('\uFEFF', '')
+        .split('\n')
+        .map((l) => l.trim())
+        .toList();
     final iface = <String, String>{};
     final peer = <String, String>{};
     var section = '';
+    var name = '';
     for (final line in lines) {
-      if (line.startsWith('[Interface]')) { section = 'iface'; continue; }
-      if (line.startsWith('[Peer]')) { section = 'peer'; continue; }
-      if (line.isEmpty || line.startsWith('#')) continue;
+      if (line.startsWith('[Interface]')) {
+        section = 'iface';
+        continue;
+      }
+      if (line.startsWith('[Peer]')) {
+        section = 'peer';
+        continue;
+      }
+      if (line.isEmpty) continue;
+      if (line.startsWith('#')) {
+        final nameMatch = RegExp(
+          r'^#\s*Name:\s*(.+)$',
+          caseSensitive: false,
+        ).firstMatch(line);
+        if (nameMatch != null) name = nameMatch.group(1)!.trim();
+        continue;
+      }
       final eqIdx = line.indexOf('=');
       if (eqIdx < 0) continue;
       final k = line.substring(0, eqIdx).trim().toLowerCase();
       final v = line.substring(eqIdx + 1).trim();
-      if (section == 'iface') iface[k] = v;
-      else if (section == 'peer') peer[k] = v;
+      if (section == 'iface')
+        iface[k] = v;
+      else if (section == 'peer')
+        peer[k] = v;
     }
 
-    final endpoint = peer['endpoint'] ?? '';
-    final colonIdx = endpoint.lastIndexOf(':');
-    final host = colonIdx >= 0 ? endpoint.substring(0, colonIdx) : endpoint;
-    final port = colonIdx >= 0 ? int.tryParse(endpoint.substring(colonIdx + 1)) ?? 51820 : 51820;
+    validateWgQuickKeys(iface, peer);
+    final (host, port) = parseWgQuickEndpoint(peer['endpoint'] ?? '');
 
     return WireGuardConfig(
-      name: '',
+      name: name,
       host: host,
       port: port,
       privateKey: iface['privatekey'] ?? '',
       publicKey: peer['publickey'] ?? '',
       presharedKey: peer['presharedkey'] ?? '',
-      addresses: (iface['address'] ?? '').split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
-      dns: (iface['dns'] ?? '').split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
+      addresses: (iface['address'] ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList(),
+      dns: (iface['dns'] ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList(),
       mtu: int.tryParse(iface['mtu'] ?? '') ?? 1420,
     );
   }

@@ -1,15 +1,15 @@
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import '../../../lib/features/converter/data/parsers/hysteria2_parser.dart';
-import '../../../lib/features/converter/domain/entities/parsed_proxy.dart';
 
 void main() {
   const parser = Hysteria2Parser();
 
   group('Hysteria2Parser', () {
     test('parses hy2:// link', () {
-      const link = 'hy2://mypassword@server.example.com:443?sni=sni.example.com&insecure=0#HY2%20Server';
-      final r = parser.parse(link) as Hysteria2Config;
+      const link =
+          'hy2://mypassword@server.example.com:443?sni=sni.example.com&insecure=0#HY2%20Server';
+      final r = parser.parse(link);
       expect(r.auth, 'mypassword');
       expect(r.host, 'server.example.com');
       expect(r.port, 443);
@@ -20,22 +20,23 @@ void main() {
 
     test('parses hysteria2:// long form', () {
       const link = 'hysteria2://pass@1.2.3.4:8080?insecure=1#Test';
-      final r = parser.parse(link) as Hysteria2Config;
+      final r = parser.parse(link);
       expect(r.insecure, isTrue);
       expect(r.host, '1.2.3.4');
       expect(r.port, 8080);
     });
 
     test('parses hy2 with obfs salamander', () {
-      const link = 'hy2://auth@host.com:443?obfs=salamander&obfs-password=gawrgura#Obfs';
-      final r = parser.parse(link) as Hysteria2Config;
+      const link =
+          'hy2://auth@host.com:443?obfs=salamander&obfs-password=gawrgura#Obfs';
+      final r = parser.parse(link);
       expect(r.obfs, 'salamander');
       expect(r.obfsPassword, 'gawrgura');
     });
 
     test('parses hy2 with port hopping range', () {
       const link = 'hy2://auth@host.com:5000-6000?sni=sni.com#Hopping';
-      final r = parser.parse(link) as Hysteria2Config;
+      final r = parser.parse(link);
       expect(r.host, 'host.com');
       expect(r.port, 5000);
       expect(r.ports, '5000-6000');

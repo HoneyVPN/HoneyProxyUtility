@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "sing_box": {
+    "repository": "https://github.com/shtorm-7/sing-box-extended",
+    "version": "1.13.12-extended-2.1.2",
+    "tag": "v1.13.12-extended-2.1.2",
+    "revision": "a47bdbe2aefc4da0aa8dd2280fb54c429dd0bfe0",
+    "apple": {
+      "go": "1.26.8",
+      "gomobile": "v0.1.12",
+      "tags": [
+        "with_gvisor",
+        "with_quic",
+        "with_wireguard",
+        "with_utls",
+        "with_clash_api",
+        "badlinkname",
+        "tfogo_checklinkname0",
+        "with_dhcp",
+        "grpcnotrace"
+      ]
+    },
+    "assets": {
+      "android-arm64": {
+        "url": "https://github.com/shtorm-7/sing-box-extended/releases/download/v1.14.1-extended-2.7.2/sing-box-1.14.1-extended-2.7.2-android-arm64.tar.gz",
+        "archive_sha256": "05b396ee99b49ef7c9a57f6af2ffed86bb1c3ad55e3148f916de4b31af3c64f2",
+        "archive_bytes": 35582796,
+        "archive_member": "sing-box-1.14.1-extended-2.7.2-android-arm64/sing-box",
+        "installed_sha256": "1bf85a625eeb349dd96c2f76127d30a98cd9e940b7330dde32be1b4cf07a33d6",
+        "installed_bytes": 109571168,
+        "expected_goos": "android",
+        "expected_goarch": "arm64",
+        "go_version": "go1.27.0-X:nodwarf5",
+        "minimum_load_alignment": 16384,
+        "runtime_assets": [],
+        "version": "1.14.1-extended-2.7.2",
+        "tag": "v1.14.1-extended-2.7.2",
+        "revision": "55faa763f986f4ca8a492d9b2719bc6330d2bef5",
+        "vcs_modified": true,
+        "provenance_note": "Official release archive checksums and embedded VCS revision match the pinned release. Embedded module is +dirty and vcs.modified=true; exact build-tree changes were not independently reconstructed.",
+        "selection_reason": "Android REALITY compatibility upgrade; typed DNS and explicit WireGuard reserved-field policy migrate together. Apple retains its existing core."
+      },
+      "android-amd64": {
+        "url": "https://github.com/shtorm-7/sing-box-extended/releases/download/v1.14.1-extended-2.7.2/sing-box-1.14.1-extended-2.7.2-android-amd64.tar.gz",
+        "archive_sha256": "b180c074fc123e1b284413ced3cd29df0dcd6869742a32ef5c7adcf90607df9c",
+        "archive_bytes": 38010701,
+        "archive_member": "sing-box-1.14.1-extended-2.7.2-android-amd64/sing-box",
+        "installed_sha256": "fc1df93ffda914cef5de9621f4445fed774e4d4f945fca91b01fd2c1755e9341",
+        "installed_bytes": 116939264,
+        "expected_goos": "android",
+        "expected_goarch": "amd64",
+        "go_version": "go1.27.0-X:nodwarf5",
+        "minimum_load_alignment": 16384,
+        "runtime_assets": [],
+        "version": "1.14.1-extended-2.7.2",
+        "tag": "v1.14.1-extended-2.7.2",
+        "revision": "55faa763f986f4ca8a492d9b2719bc6330d2bef5",
+        "vcs_modified": true,
+        "provenance_note": "Official release archive checksums and embedded VCS revision match the pinned release. Embedded module is +dirty and vcs.modified=true; exact build-tree changes were not independently reconstructed.",
+        "selection_reason": "Android REALITY compatibility upgrade; typed DNS and explicit WireGuard reserved-field policy migrate together. Apple retains its existing core."
+      },
+      "linux-amd64": {
+        "url": "https://github.com/shtorm-7/sing-box-extended/releases/download/v1.13.12-extended-2.1.2/sing-box-1.13.12-extended-2.1.2-linux-amd64.tar.gz",
+        "archive_sha256": "171717ef228ac84b105b61649eaac3d87e35768ad3cf4dee2aa9b5a04330c48d",
+        "archive_member": "sing-box-1.13.12-extended-2.1.2-linux-amd64/sing-box",
+        "installed_sha256": "59265a9d98de96fca34de914cb9022a21316f3a03b3cde5ead292bff0afd43f9",
+        "expected_goos": "linux",
+        "expected_goarch": "amd64",
+        "runtime_assets": [],
+        "go_version": "go1.26.3-X:nodwarf5"
+      },
+      "windows-amd64": {
+        "version": "1.14.1-extended-2.7.2",
+        "tag": "v1.14.1-extended-2.7.2",
+        "revision": "55faa763f986f4ca8a492d9b2719bc6330d2bef5",
+        "url": "https://github.com/shtorm-7/sing-box-extended/releases/download/v1.14.1-extended-2.7.2/sing-box-1.14.1-extended-2.7.2-windows-amd64.zip",
+        "archive_sha256": "631104caf4b2ee36a74b3ffa8f73f465a5dcc9d03d85e575401b3d1031a5dc52",
+        "archive_member": "sing-box-1.14.1-extended-2.7.2-windows-amd64/sing-box.exe",
+        "archive_bytes": 38063109,
+        "installed_sha256": "61fccc36998829c3149b5e32c61a7b286e863fe8833d351eefecf3cd6618d951",
+        "installed_bytes": 108178944,
+        "expected_goos": "windows",
+        "expected_goarch": "amd64",
+        "go_version": "go1.27.0-X:nodwarf5",
+        "runtime_assets": [],
+        "vcs_modified": true,
+        "provenance_note": "Official release archive checksum and embedded VCS revision match the published tag. Embedded Go module is v1.14.1-extended-2.7.2+dirty and vcs.modified=true; exact build-tree modifications were not independently reconstructed.",
+        "selection_reason": "Windows-only REALITY compatibility upgrade, verified with an original iOS-fingerprint XHTTP profile. Windows typed DNS and WireGuard reserved-field compatibility must be migrated together; other platforms retain the existing core."
+      },
+      "linux-amd64-android-checker": {
+        "url": "https://github.com/shtorm-7/sing-box-extended/releases/download/v1.14.1-extended-2.7.2/sing-box-1.14.1-extended-2.7.2-linux-amd64.tar.gz",
+        "archive_sha256": "c57646ac53e793559d736dce9cba12dbf6845d187b0bfd8c3aacf61a4328941d",
+        "archive_member": "sing-box-1.14.1-extended-2.7.2-linux-amd64/sing-box",
+        "installed_sha256": "00ac880b46fdf901d49713b1fc09fb27e1dcdbde683fca6bb18b012eeb419cf8",
+        "expected_goos": "linux",
+        "expected_goarch": "amd64",
+        "runtime_assets": [],
+        "version": "1.14.1-extended-2.7.2",
+        "tag": "v1.14.1-extended-2.7.2",
+        "revision": "55faa763f986f4ca8a492d9b2719bc6330d2bef5",
+        "vcs_modified": true,
+        "provenance_note": "Official release archive checksums and embedded VCS revision match the pinned release. Embedded module is +dirty and vcs.modified=true; exact build-tree changes were not independently reconstructed.",
+        "archive_bytes": 37572683,
+        "installed_bytes": 107061372,
+        "go_version": "go1.27.0-X:nodwarf5",
+        "selection_reason": "Schema checker for the effective Android core only; the production Linux/default core remains unchanged."
+      },
+      "android-armv7": {
+        "url": "https://github.com/shtorm-7/sing-box-extended/releases/download/v1.14.1-extended-2.7.2/sing-box-1.14.1-extended-2.7.2-android-armv7.tar.gz",
+        "archive_sha256": "a05b9705fc8385ef50c34745eeb26a7d86f387029c6ab63daa829d83d9983e8a",
+        "archive_bytes": 36563411,
+        "archive_member": "sing-box-1.14.1-extended-2.7.2-android-armv7/sing-box",
+        "installed_sha256": "6a198733860caded0396a34d10cf69960c31b526e2ca3dfa21996bdc0c7489ac",
+        "installed_bytes": 104121012,
+        "expected_goos": "android",
+        "expected_goarch": "arm",
+        "go_version": "go1.27.0-X:nodwarf5",
+        "minimum_load_alignment": 4096,
+        "runtime_assets": [],
+        "version": "1.14.1-extended-2.7.2",
+        "tag": "v1.14.1-extended-2.7.2",
+        "revision": "55faa763f986f4ca8a492d9b2719bc6330d2bef5",
+        "vcs_modified": true,
+        "provenance_note": "Official release archive checksums and embedded VCS revision match the pinned release. Embedded module is +dirty and vcs.modified=true; exact build-tree changes were not independently reconstructed.",
+        "selection_reason": "Restore existing Android ARMv7 users using the same reviewed Android release. NDK 16 KB alignment applies to 64-bit ABIs; this ARM32 release retains its 4 KB loader alignment."
+      }
+    },
+    "selection_reason": "Latest released version retaining existing WireGuard peer reserved support; v1.13.12-extended-2.1.3 and later remove it. Newer1.14 also removes legacy DNS; upgrade needs a deliberate compatibility migration."
+  },
+  "tun2socks": {
+    "repository": "https://github.com/xjasonlyu/tun2socks",
+    "version": "2.7.0",
+    "tag": "v2.7.0",
+    "revision": "8dda19e8e4613e014f0b12f3e624fdff5e5f23b3",
+    "assets": {
+      "linux-arm64": {
+        "installed_sha256": "e607845324f12cde2ab10b957f3a747950e353e23d9547db8c70af717e4e0ddb",
+        "expected_goos": "linux",
+        "expected_goarch": "arm64",
+        "go_version": "go1.26.8",
+        "minimum_load_alignment": 65536,
+        "runtime_assets": [],
+        "build": {
+          "output_name": "tun2socks-linux-arm64",
+          "go": "1.26.8",
+          "alignment": 65536,
+          "source_go_sum_sha256": "bfb9cb0a68262ac5b0020c91781d66698841cc9851374dfeb4d68e55d3049f48"
+        }
+      },
+      "linux-amd64": {
+        "installed_sha256": "ee9d74a5881626a4f917f5d50c3c251ac03667427ea375fdd2f64e27bff29db8",
+        "expected_goos": "linux",
+        "expected_goarch": "amd64",
+        "go_version": "go1.26.8",
+        "minimum_load_alignment": 16384,
+        "runtime_assets": [],
+        "build": {
+          "output_name": "tun2socks-linux-amd64",
+          "go": "1.26.8",
+          "alignment": 16384,
+          "source_go_sum_sha256": "bfb9cb0a68262ac5b0020c91781d66698841cc9851374dfeb4d68e55d3049f48"
+        }
+      },
+      "linux-armv7": {
+        "url": "https://github.com/xjasonlyu/tun2socks/releases/download/v2.7.0/tun2socks-linux-armv7.zip",
+        "archive_sha256": "90875d7c09af28ed9b0dc51a2d17b317af832553e2e3de1d3365351d14bd7762",
+        "archive_bytes": 4344947,
+        "archive_member": "tun2socks-linux-armv7",
+        "installed_sha256": "3df127c1032e1b2a22677d931e15ef6dd8c23ddb147b1676e9a21a0bd42fe397",
+        "installed_bytes": 11010174,
+        "expected_goos": "linux",
+        "expected_goarch": "arm",
+        "go_version": "go1.26.3",
+        "minimum_load_alignment": 65536,
+        "runtime_assets": [],
+        "vcs_modified": false,
+        "provenance_note": "Exact official v2.7.0 ARMv7 release archive; clean embedded VCS revision and GOARM=7 checked without executing it.",
+        "selection_reason": "Restore ARMv7 using the official static binary; existing reviewed 64-bit builds remain unchanged."
+      }
+    }
+  },
+  "android": {
+    "armeabi-v7a": {
+      "sing_box_asset": "android-armv7",
+      "tun2socks_asset": "linux-armv7"
+    },
+    "arm64-v8a": {
+      "sing_box_asset": "android-arm64",
+      "tun2socks_asset": "linux-arm64"
+    },
+    "x86_64": {
+      "sing_box_asset": "android-amd64",
+      "tun2socks_asset": "linux-amd64"
+    }
+  }
+}

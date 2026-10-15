@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/connection/presentation/screens/home_screen.dart';
@@ -19,24 +18,16 @@ import '../features/onboarding/presentation/screens/permission_screen.dart';
 import 'shell_scaffold.dart';
 
 final appRouter = GoRouter(
-  initialLocation: '/splash',
+  initialLocation: '/',
   routes: [
-    GoRoute(
-      path: '/splash',
-      builder: (_, __) => const SplashScreen(),
-    ),
-    GoRoute(
-      path: '/welcome',
-      builder: (_, __) => const WelcomeScreen(),
-    ),
-    GoRoute(
-      path: '/permission',
-      builder: (_, __) => const PermissionScreen(),
-    ),
+    GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
+    GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
+    GoRoute(path: '/permission', builder: (_, __) => const PermissionScreen()),
     // Push-only routes (no bottom nav bar)
     GoRoute(
       path: '/servers/:id',
-      builder: (_, state) => ServerDetailScreen(id: state.pathParameters['id']!),
+      builder: (_, state) =>
+          ServerDetailScreen(id: state.pathParameters['id']!),
     ),
     GoRoute(
       path: '/subscriptions',
@@ -45,7 +36,7 @@ final appRouter = GoRouter(
     ShellRoute(
       builder: (context, state, child) => ShellScaffold(child: child),
       routes: [
-        // Tab routes use NoTransitionPage — AnimatedSwitcher handles the animation
+        // Keep the shell navigator stable while changing top-level sections.
         GoRoute(
           path: '/',
           pageBuilder: (_, __) => const NoTransitionPage(child: HomeScreen()),
@@ -55,12 +46,14 @@ final appRouter = GoRouter(
           pageBuilder: (_, state) => NoTransitionPage(
             child: ConverterScreen(
               initialText: state.uri.queryParameters['initialText'],
+              importActivation: state.uri.queryParameters['importActivation'],
             ),
           ),
         ),
         GoRoute(
           path: '/marketplace',
-          pageBuilder: (_, __) => const NoTransitionPage(child: MarketplaceScreen()),
+          pageBuilder: (_, __) =>
+              const NoTransitionPage(child: MarketplaceScreen()),
           routes: [
             GoRoute(
               path: ':id',
@@ -71,24 +64,19 @@ final appRouter = GoRouter(
         ),
         GoRoute(
           path: '/settings',
-          pageBuilder: (_, __) => const NoTransitionPage(child: SettingsScreen()),
+          pageBuilder: (_, __) =>
+              const NoTransitionPage(child: SettingsScreen()),
           routes: [
             GoRoute(
               path: 'routing',
               builder: (_, __) => const RoutingSettingsScreen(),
             ),
-            GoRoute(
-              path: 'dns',
-              builder: (_, __) => const DnsSettingsScreen(),
-            ),
+            GoRoute(path: 'dns', builder: (_, __) => const DnsSettingsScreen()),
             GoRoute(
               path: 'split-tunnel',
               builder: (_, __) => const SplitTunnelScreen(),
             ),
-            GoRoute(
-              path: 'log',
-              builder: (_, __) => const LogScreen(),
-            ),
+            GoRoute(path: 'log', builder: (_, __) => const LogScreen()),
             GoRoute(
               path: 'url-schemes',
               builder: (_, __) => const UrlSchemesScreen(),

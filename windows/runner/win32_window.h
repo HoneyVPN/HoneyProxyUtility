@@ -36,6 +36,11 @@ class Win32Window {
   // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
+  // Creates an invisible window using signed physical virtual-screen bounds.
+  // Callers can place it on any monitor without scaling its coordinates twice.
+  // The bounds include the title bar and frame; normal resizing stays enabled.
+  bool CreateWithBounds(const std::wstring& title, const RECT& bounds);
+
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();
 

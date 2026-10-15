@@ -6,7 +6,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
+import android.os.Handler
+import android.os.Build
+import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
+import android.system.Os
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
@@ -15,368 +20,525 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 
 class HoneyProxyVpnService : VpnService() {
-
     companion object {
         const val TAG = "HoneyVPN"
         const val ACTION_START = "ru.honeyvpn.proxy.START"
-        const val ACTION_STOP  = "ru.honeyvpn.proxy.STOP"
-        const val CHANNEL_ID   = "honeyvpn_vpn"
+        const val ACTION_STOP = "ru.honeyvpn.proxy.STOP"
+        const val CHANNEL_ID = "honeyvpn_vpn"
         const val NOTIFICATION_ID = 1001
         private const val CLASH_PORT = 9090
-        private const val SOCKS_PORT = 2080
-
-        @Volatile
-        var isRunning = false
+        // Sequence short native fork sections across service instances. JNI
+        // changes CLOEXEC only in the child; the parent dup always stays private.
+        private val nativeForkLock = Any()
+        private val serviceOwnerLock = Any()
+        // One component can be recreated before the old instance has finished
+        // closing. Queue commands, while every cleanup still owns its snapshot.
+        private val lifecycle = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "HoneyVPN-lifecycle").also { it.isDaemon = true }
+        }
+        private val retirements = ConfirmedSessionCleanup<Pair<HoneyProxyVpnService, Session>>()
+        @Volatile var nativeState = "DISCONNECTED"
             private set
+        @Volatile private var activeService: HoneyProxyVpnService? = null
+        @Volatile var isRunning = false
+            private set
+
+        // Update only an existing notification; never creates a service or a
+        // session and never turns a language change into a VPN command.
+        fun setNotificationLocale(locale: String): Boolean {
+            if (locale != "ru" && locale != "en") return false
+            val owner = synchronized(serviceOwnerLock) { activeService } ?: return false
+            owner.mainHandler.post {
+                synchronized(serviceOwnerLock) {
+                    if (activeService === owner && owner.notificationLocale != locale) {
+                        owner.notificationLocale = locale
+                        if (nativeState != "DISCONNECTED") {
+                            try { owner.updateNotification(nativeState) } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+            return true
+        }
     }
 
-    private var tunFd: ParcelFileDescriptor? = null
-    private var sbProcess: Process? = null
-    private var t2sPid: Int = -1
-    private var t2sPipePfd: ParcelFileDescriptor? = null
-    private var statsPollThread: Thread? = null
-    private var watchdogThread: Thread? = null
-    @Volatile private var statsConnection: HttpURLConnection? = null
+    private class Session(val directory: File) {
+        val configuration = File(directory, "config.json")
+        val controllerSecret = UUID.randomUUID().toString()
+        var tun: ParcelFileDescriptor? = null
+        var core: Process? = null
+        var forwarderPid = -1
+        var pipe: ParcelFileDescriptor? = null
+        var statsThread: Thread? = null
+        var watchdog: Thread? = null
+        var statsConnection: HttpURLConnection? = null
+        val startupFinished = CountDownLatch(1)
+        val pipeReaderFinished = CountDownLatch(1)
+        @Volatile var startupLaunched = false
+        @Volatile var pipeReaderLaunched = false
+        @Volatile var unpublishedCore: Process? = null
+        @Volatile var unpublishedForwarder = -1
+        @Volatile var ready = false
+    }
 
-    // Incremented on every start/stop. Each background thread captures its generation at launch
-    // and exits silently if it no longer matches — prevents stale threads from corrupting
-    // state when a new connection starts before the old one fully tears down.
-    @Volatile private var generation = 0
+    private val sessions = VpnSessionGate<Session>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var notificationLocale = "en"
+
+    override fun onCreate() {
+        super.onCreate()
+        val previous = synchronized(serviceOwnerLock) {
+            val old = activeService
+            activeService = this
+            isRunning = false
+            if (nativeState != "DISCONNECTED") nativeState = "DISCONNECTING"
+            old
+        }
+        if (previous != null && previous !== this) {
+            val retirement = previous.sessions.command()
+            lifecycle.execute { previous.finishRetirement(retirement, null, null, false) }
+        }
+    }
+
+    private fun state(value: String) = synchronized(serviceOwnerLock) {
+        if (activeService === this) { nativeState = value; isRunning = value == "CONNECTED"; HoneyDiagnostics.add(value) }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START -> {
-                val configJson = intent.getStringExtra("config_json") ?: return START_NOT_STICKY
-                startTunnel(configJson)
-                return START_STICKY
-            }
-            ACTION_STOP -> {
-                stopTunnel()
+        val retirement = sessions.command { if (nativeState != "DISCONNECTED") state("DISCONNECTING") }
+        if (intent?.action == ACTION_START) {
+            val configuration = intent.getStringExtra("config_json")
+            notificationLocale = if (intent.getStringExtra("locale") == "ru") "ru" else "en"
+            try { startForeground(NOTIFICATION_ID, buildNotification("CONNECTING")) }
+            catch (_: Exception) {
+                lifecycle.execute { finishRetirement(retirement, "Cannot start the Android VPN service", null, true) }
                 return START_NOT_STICKY
             }
-            null -> {
-                // Service was restarted by Android (START_STICKY) after being killed.
-                // No config available — stop cleanly so the notification doesn't linger.
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                return START_NOT_STICKY
+            lifecycle.execute {
+                retirement.session?.let { retirements.retain(this to it) }
+                if (!drainRetirements()) {
+                    NativeBindings.onVpnError("VPN stop could not be confirmed", retiredDispatch(retirement))
+                } else if (configuration != null) {
+                    startTunnel(configuration, retirement.command)
+                } else {
+                    finishRetirement(retirement, "VPN configuration is missing", null, true)
+                }
             }
+        } else {
+            val request = intent?.getStringExtra("stop_request_id")
+            lifecycle.execute { finishRetirement(retirement, null, request, true) }
         }
         return START_NOT_STICKY
     }
 
-    private fun startTunnel(configJson: String) {
-        // Increment generation BEFORE cleanup so old background threads see the new value
-        // immediately and exit without touching shared state.
-        if (isRunning || sbProcess != null || t2sPid > 0) {
-            Log.d(TAG, "Cleaning up existing session before restart")
-            generation++
-            cleanupResources()
-        }
-
-        val myGen = ++generation
-        Log.d(TAG, "Starting VPN tunnel (gen=$myGen)")
-
+    private fun startTunnel(configuration: String, command: Long) {
+        val session = Session(File(cacheDir, "vpn-${UUID.randomUUID()}"))
+        if (!sessions.begin(command, session,
+                allowed = { synchronized(serviceOwnerLock) { activeService === this } }) { state("CONNECTING") }) return
         try {
-        startForeground(NOTIFICATION_ID, buildNotification("Подключение..."))
-
-        val builder = Builder()
-            .setSession("HoneyProxyUtility")
-            .addAddress("172.19.0.1", 30)
-            .addAddress("fdfe:dcba:9876::1", 126)
-            .addDnsServer("172.19.0.2")
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
-            .setMtu(1500)
-            .setBlocking(false)
-
-        try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
-
-        tunFd?.close()
-        val pfd = builder.establish() ?: run {
-            Log.e(TAG, "Failed to establish VPN interface")
-            notifyError("Failed to establish VPN interface", myGen)
-            return
-        }
-        tunFd = pfd
-        val rawFd = pfd.fd
-        Log.d(TAG, "TUN established: fd=$rawFd")
-
-        isRunning = true
-        Thread { launchSingboxAndTun2socks(configJson, rawFd, myGen) }
-            .also { it.isDaemon = true; it.start() }
-        } catch (e: Exception) {
-            Log.e(TAG, "startTunnel error: ${e.message}", e)
-            if (generation == myGen) notifyError(e.message ?: "startup error", myGen)
-        }
-    }
-
-    /** Kills all running child processes and releases resources. Does not affect service lifecycle. */
-    private fun cleanupResources() {
-        isRunning = false
-
-        try { statsConnection?.disconnect() } catch (_: Exception) {}
-        statsConnection = null
-
-        val pid = t2sPid
-        if (pid > 0) {
-            android.os.Process.killProcess(pid)
-            Thread { NativeLauncher.waitForPid(pid) }.also { it.isDaemon = true; it.start() }
-            t2sPid = -1
-        }
-
-        val pipePfd = t2sPipePfd; t2sPipePfd = null
-        try { pipePfd?.close() } catch (_: Exception) {}
-
-        val sb = sbProcess; sbProcess = null
-        sb?.destroyForcibly()
-        if (sb != null) {
-            Thread { try { sb.waitFor(5, TimeUnit.SECONDS) } catch (_: Exception) {} }
-                .also { it.isDaemon = true; it.start() }
-        }
-
-        statsPollThread?.interrupt(); statsPollThread = null
-        watchdogThread?.interrupt(); watchdogThread = null
-        val tunSnapshot = tunFd; tunFd = null
-        try { tunSnapshot?.close() } catch (_: Exception) {}
-    }
-
-    private fun launchSingboxAndTun2socks(configJson: String, tunRawFd: Int, gen: Int) {
-        try {
-            if (generation != gen) { Log.d(TAG, "gen=$gen superseded, abort"); return }
-
-            val cfgFile = File(cacheDir, "sbconfig.json")
-            cfgFile.writeText(configJson)
-
-            val sbPath = "${applicationInfo.nativeLibraryDir}/libsingbox.so"
-            if (!File(sbPath).exists()) {
-                if (generation == gen) notifyError("sing-box not found", gen)
+            check(session.directory.mkdir()) { "Could not create the VPN session directory" }
+            Os.chmod(session.directory.absolutePath, 0b111000000)
+            val runtimeConfiguration = JSONObject(configuration)
+            val experimental = runtimeConfiguration.optJSONObject("experimental") ?: JSONObject()
+            val controller = experimental.optJSONObject("clash_api") ?: JSONObject()
+            controller.put("external_controller", "127.0.0.1:$CLASH_PORT")
+            controller.put("secret", session.controllerSecret)
+            experimental.put("clash_api", controller)
+            runtimeConfiguration.put("experimental", experimental)
+            session.configuration.writeText(runtimeConfiguration.toString())
+            Os.chmod(session.configuration.absolutePath, 0b110000000)
+            socksPortFromConfig(configuration) // Validate before allocating the TUN.
+            val builder = Builder()
+                .setSession("HoneyProxyUtility")
+                .addAddress("172.19.0.1", 30)
+                .addAddress("fdfe:dcba:9876::1", 126)
+                .addDnsServer("172.19.0.2")
+                .addRoute("0.0.0.0", 0)
+                .addRoute("::", 0)
+                .setMtu(1500)
+                .setBlocking(false)
+            // Both executable cores share this UID and must bypass their own TUN.
+            builder.addDisallowedApplication(packageName)
+            val descriptor = builder.establish() ?: error("Failed to establish VPN interface")
+            if (!sessions.update(session) { session.tun = descriptor }) {
+                descriptor.close()
                 return
             }
+            val worker = Thread {
+                try { launchCores(session, configuration) }
+                finally { session.startupFinished.countDown() }
+            }.also { it.isDaemon = true }
+            session.startupLaunched = true
+            try { worker.start() }
+            catch (error: Throwable) { session.startupFinished.countDown(); throw error }
+        } catch (error: Exception) {
+            notifyError(session, error.message ?: "VPN startup failed")
+        }
+    }
 
-            // Wait for port 2080 to be free from previous session
-            waitForPortFree("127.0.0.1", SOCKS_PORT, 6_000)
-            if (generation != gen) return
+    private fun remaining(deadline: Long): Long =
+        TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).coerceAtLeast(0)
 
-            val sbProc = ProcessBuilder(sbPath, "run", "-c", cfgFile.absolutePath)
-                .redirectErrorStream(true).start()
-            if (generation != gen) { sbProc.destroyForcibly(); return }
-            sbProcess = sbProc
+    /** Slow closure is outside the publication gate and the Android UI thread. */
+    private fun cleanupResources(session: Session, deadline: Long): Boolean {
+        session.ready = false
+        try { session.statsConnection?.disconnect() } catch (_: Exception) {}
+        session.statsThread?.interrupt()
+        session.watchdog?.interrupt()
+        try { session.pipe?.close(); session.pipe = null } catch (_: Exception) { return false }
+        try { session.tun?.close(); session.tun = null } catch (_: Exception) { return false }
+        session.core?.let {
+            if (!killAndReap(it, remaining(deadline))) return false
+            session.core = null
+        }
+        if (session.forwarderPid > 0) {
+            if (!killAndReap(session.forwarderPid, remaining(deadline))) return false
+            session.forwarderPid = -1
+        }
+        if (!session.startupLaunched) session.startupFinished.countDown()
+        if (!session.startupFinished.await(remaining(deadline), TimeUnit.MILLISECONDS)) return false
+        session.unpublishedCore?.let {
+            if (!killAndReap(it, remaining(deadline))) return false
+            session.unpublishedCore = null
+        }
+        if (session.unpublishedForwarder > 0) {
+            if (!killAndReap(session.unpublishedForwarder, remaining(deadline))) return false
+            session.unpublishedForwarder = -1
+        }
+        if (session.pipeReaderLaunched && !session.pipeReaderFinished.await(remaining(deadline), TimeUnit.MILLISECONDS)) return false
+        for (thread in listOfNotNull(session.statsThread, session.watchdog)) {
+            val timeout = remaining(deadline)
+            if (thread.isAlive && timeout <= 0) return false
+            if (thread.isAlive) thread.join(timeout)
+            if (thread.isAlive) return false
+        }
+        return session.directory.deleteRecursively() || !session.directory.exists()
+    }
 
-            val sbOutput = StringBuilder()
+    private fun killAndReap(process: Process, timeout: Long = 3500): Boolean =
+        terminateJavaProcess(process, timeout)
+
+    private fun killAndReap(pid: Int, timeout: Long = 3500): Boolean = try {
+        NativeLauncher.terminateOwnedChild(pid, timeout.coerceIn(0, 5000).toInt()) == 0
+    } catch (_: Exception) { false }
+
+    private fun drainRetirements(): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        return retirements.confirm { (owner, session) ->
+            try { owner.cleanupResources(session, deadline) } catch (_: Exception) { false }
+        }
+    }
+
+    private fun coreStatus(process: Process): OwnedChildStatus = try {
+        val exit = process.exitValue()
+        if (exit in 0..255) OwnedChildStatus(OwnedChildStatus.Kind.EXITED, exitCode = exit)
+        else OwnedChildStatus.unknown()
+    } catch (_: IllegalThreadStateException) {
+        OwnedChildStatus(OwnedChildStatus.Kind.RUNNING)
+    } catch (_: Exception) {
+        OwnedChildStatus.unknown()
+    }
+
+    private fun coreAlive(process: Process): Boolean = coreStatus(process).running
+
+    private fun forwarderStatus(pid: Int): OwnedChildStatus = try {
+        OwnedChildStatus.fromNative(NativeLauncher.observeOwnedChild(pid))
+    } catch (_: Exception) {
+        OwnedChildStatus.unknown()
+    }
+
+    private fun childFailure(session: Session, role: String, status: OwnedChildStatus, startup: Boolean) {
+        // Never include child arguments, profile/configuration, endpoint or path.
+        HoneyDiagnostics.child(role, status)
+        Log.e(TAG, status.diagnostic(role))
+        notifyError(session, status.failureMessage(role, startup))
+    }
+
+    private fun launchCores(session: Session, configuration: String) {
+        try {
+            if (!sessions.isCurrent(session)) return
+            val socksPort = socksPortFromConfig(configuration)
+            if (!waitForPortFree(session, socksPort, 6_000)) {
+                if (sessions.isCurrent(session)) notifyError(session, "VPN local port is still occupied")
+                return
+            }
+            if (!sessions.isCurrent(session)) return
+            val process = ProcessBuilder("${applicationInfo.nativeLibraryDir}/libsingbox.so", "run", "-c", session.configuration.absolutePath)
+                .directory(session.directory).redirectErrorStream(true).start()
+            if (!sessions.update(session) { session.core = process }) {
+                session.unpublishedCore = process
+                if (killAndReap(process)) session.unpublishedCore = null
+                return
+            }
             Thread {
-                try {
-                    sbProc.inputStream.bufferedReader().forEachLine { line ->
-                        Log.d(TAG, "sb: $line")
-                        synchronized(sbOutput) { sbOutput.appendLine(line) }
-                    }
-                } catch (_: Exception) {}
+                try { HoneyDiagnostics.drain(process.inputStream.bufferedReader()) }
+                catch (_: Exception) {}
             }.also { it.isDaemon = true; it.start() }
-
-            if (!waitForPort("127.0.0.1", SOCKS_PORT, 10_000)) {
-                if (generation != gen) return
-                val err = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
-                Log.e(TAG, "sing-box not ready:\n$err")
-                sbProc.destroyForcibly(); sbProcess = null; isRunning = false
-                notifyError("sing-box failed: $err", gen)
-                return
-            }
-            if (generation != gen) return
-            Log.d(TAG, "sing-box SOCKS5 ready on port $SOCKS_PORT")
-
-            val t2sPath = "${applicationInfo.nativeLibraryDir}/libtun2socks.so"
-            if (!File(t2sPath).exists()) {
-                if (generation == gen) notifyError("tun2socks not found", gen)
-                sbProc.destroyForcibly(); sbProcess = null; isRunning = false
-                return
-            }
-
-            val readFdArr = IntArray(1) { -1 }
-            val pid = NativeLauncher.forkExecTun2socks(t2sPath, tunRawFd, SOCKS_PORT, readFdArr)
-            if (generation != gen) {
-                if (pid > 0) {
-                    android.os.Process.killProcess(pid)
-                    Thread { NativeLauncher.waitForPid(pid) }.also { it.isDaemon = true; it.start() }
+            if (!waitForCoreReady(session, process, socksPort, 10_000)) {
+                if (sessions.isCurrent(session)) {
+                    val status = coreStatus(process)
+                    if (!status.running) childFailure(session, "sing-box", status, true)
+                    else notifyError(session, "sing-box did not become ready")
                 }
-                sbProc.destroyForcibly(); sbProcess = null
                 return
+            }
+            val readFd = IntArray(1) { -1 }
+            val pid = synchronized(nativeForkLock) {
+                // dup is an independently owned reference to the old TUN. Keep
+                // it open until JNI fork returns; cancellation may close the
+                // original without reusing this number for a newer TUN.
+                val descriptor = sessions.read(session) {
+                    ParcelFileDescriptor.dup(checkNotNull(session.tun).fileDescriptor)
+                } ?: return
+                descriptor.use {
+                    NativeLauncher.forkExecTun2socks("${applicationInfo.nativeLibraryDir}/libtun2socks.so", it.fd, socksPort, readFd)
+                }
             }
             if (pid <= 0) {
-                notifyError("tun2socks launch failed", gen)
-                sbProc.destroyForcibly(); sbProcess = null; isRunning = false
+                if (readFd[0] >= 0) ParcelFileDescriptor.adoptFd(readFd[0]).close()
+                notifyError(session, "VPN forwarder could not start")
                 return
             }
-            t2sPid = pid
-            Log.d(TAG, "tun2socks started PID=$pid: fd=$tunRawFd → socks5://127.0.0.1:$SOCKS_PORT")
-
-            // Pipe for capturing tun2socks output
-            val t2sExited = java.util.concurrent.atomic.AtomicBoolean(false)
-            val readFd = readFdArr[0]
-            if (readFd >= 0) {
-                val pipePfd = ParcelFileDescriptor.adoptFd(readFd)
-                t2sPipePfd = pipePfd
-                Thread {
+            var pipe: ParcelFileDescriptor? = null
+            try {
+                if (readFd[0] >= 0) pipe = ParcelFileDescriptor.adoptFd(readFd[0])
+            } catch (error: Exception) {
+                session.unpublishedForwarder = pid
+                if (killAndReap(pid)) session.unpublishedForwarder = -1
+                throw error
+            }
+            if (!sessions.update(session) { session.forwarderPid = pid; session.pipe = pipe }) {
+                try { pipe?.close() } catch (_: Exception) {}
+                session.unpublishedForwarder = pid
+                if (killAndReap(pid)) session.unpublishedForwarder = -1
+                return
+            }
+            val outputPipe = pipe
+            if (outputPipe != null) {
+                session.pipeReaderLaunched = true
+                val pipeReader = Thread {
                     try {
-                        java.io.FileInputStream(pipePfd.fileDescriptor).bufferedReader().forEachLine { line ->
-                            Log.d(TAG, "t2s: $line")
+                        val readerPipe = sessions.read(session) { ParcelFileDescriptor.dup(outputPipe.fileDescriptor) }
+                            ?: return@Thread
+                        ParcelFileDescriptor.AutoCloseInputStream(readerPipe).bufferedReader().use { reader ->
+                            HoneyDiagnostics.drain(reader)
                         }
-                    } catch (_: Exception) {}
-                    t2sExited.set(true)
-                    try { pipePfd.close() } catch (_: Exception) {}
-                    if (t2sPipePfd === pipePfd) t2sPipePfd = null
-                }.also { it.isDaemon = true; it.start() }
-            }
-
-            // Watchdog: monitors both processes for unexpected death.
-            // Guards on generation so it exits silently if a newer connection takes over.
-            watchdogThread = Thread {
-                while (isRunning && generation == gen) {
-                    val sbDead = try { sbProc.exitValue(); true } catch (_: IllegalThreadStateException) { false }
-                    val t2sDead = if (readFd >= 0) t2sExited.get()
-                                  else (pid > 0 && !File("/proc/$pid").exists())
-                    if (sbDead || t2sDead) {
-                        if (isRunning && generation == gen) {
-                            val err = synchronized(sbOutput) { sbOutput.takeLast(500).toString().trim() }
-                            Log.e(TAG, "Process died unexpectedly: sb=$sbDead t2s=$t2sDead\n$err")
-                            if (!sbDead) sbProc.destroyForcibly()
-                            if (t2sDead && pid > 0) NativeLauncher.waitForPid(pid)
-                            isRunning = false; sbProcess = null; t2sPid = -1
-                            // Close TUN fd that would otherwise leak until GC
-                            val tunSnapshot = tunFd; tunFd = null
-                            try { tunSnapshot?.close() } catch (_: Exception) {}
-                            NativeBindings.onVpnStopped()
-                            // Stop the zombie foreground service — without this the notification
-                            // stays visible ("Подключено") even though VPN is dead.
-                            stopForeground(STOP_FOREGROUND_REMOVE)
-                            stopSelf()
-                        }
-                        return@Thread
                     }
-                    try { Thread.sleep(500) } catch (_: InterruptedException) { return@Thread }
-                }
-            }.also { it.isDaemon = true; it.start() }
-
-            if (generation != gen) return
-            updateNotification("Подключено")
-            NativeBindings.onVpnStarted()
-            startStatsPolling(gen)
-
-        } catch (t: Throwable) {
-            if (generation == gen) {
-                Log.e(TAG, "launchSingboxAndTun2socks fatal: ${t.message}", t)
-                notifyError(t.message ?: "unknown error", gen)
+                    catch (_: Exception) {
+                        if (sessions.isCurrent(session)) Log.w(TAG, "VPN forwarder output is unavailable")
+                    }
+                    finally {
+                        session.pipeReaderFinished.countDown()
+                    }
+                }.also { it.isDaemon = true }
+                try { pipeReader.start() }
+                catch (error: Throwable) { session.pipeReaderFinished.countDown(); throw error }
             }
+            // fork success is not exec/readiness. Observe the children through
+            // their startup window before announcing the session to the UI.
+            val started = SystemClock.elapsedRealtime()
+            val startupDeadline = started + 1_500
+            val coreHealth = OwnedChildHealthWindow()
+            val forwarderHealth = OwnedChildHealthWindow()
+            var lastCore = OwnedChildStatus.unknown()
+            var lastForwarder = OwnedChildStatus.unknown()
+            var confirmed = false
+            while (SystemClock.elapsedRealtime() < startupDeadline) {
+                if (!sessions.isCurrent(session)) return
+                val now = SystemClock.elapsedRealtime()
+                lastCore = coreStatus(process)
+                lastForwarder = forwarderStatus(pid)
+                if (coreHealth.failed(lastCore, now)) {
+                    childFailure(session, "sing-box", lastCore, true)
+                    return
+                }
+                if (forwarderHealth.failed(lastForwarder, now)) {
+                    childFailure(session, "forwarder", lastForwarder, true)
+                    return
+                }
+                // EOF or a broken diagnostic reader says nothing about process
+                // liveness. Both real child observations must be RUNNING.
+                if (lastCore.running && lastForwarder.running && now - started >= 150) {
+                    confirmed = true
+                    break
+                }
+                Thread.sleep(25)
+            }
+            if (!confirmed) {
+                if (!lastCore.running) childFailure(session, "sing-box", lastCore, true)
+                else childFailure(session, "forwarder", lastForwarder, true)
+                return
+            }
+            if (!sessions.update(session) { session.ready = true; state("CONNECTED") }) return
+            mainHandler.post {
+                sessions.update(session) { if (activeService === this) updateNotification("CONNECTED") }
+            }
+            NativeBindings.onVpnStarted { action -> sessions.update(session) { if (activeService === this) action() } }
+            startWatchdog(session, process, pid)
+            startStatsPolling(session)
+        } catch (error: Throwable) {
+            notifyError(session, "VPN startup failed")
+            Log.e(TAG, "VPN child startup failed")
         }
     }
 
-    private fun waitForPort(host: String, port: Int, timeoutMs: Long): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            try { Socket().use { it.connect(InetSocketAddress(host, port), 500); return true } }
-            catch (_: Exception) { Thread.sleep(200) }
+    private fun startWatchdog(session: Session, process: Process, pid: Int) {
+        val thread = Thread {
+            val coreHealth = OwnedChildHealthWindow()
+            val forwarderHealth = OwnedChildHealthWindow()
+            while (sessions.isCurrent(session)) {
+                val now = SystemClock.elapsedRealtime()
+                val core = coreStatus(process)
+                val forwarder = forwarderStatus(pid)
+                if (coreHealth.failed(core, now)) {
+                    childFailure(session, "sing-box", core, false)
+                    return@Thread
+                }
+                if (forwarderHealth.failed(forwarder, now)) {
+                    childFailure(session, "forwarder", forwarder, false)
+                    return@Thread
+                }
+                try { Thread.sleep(500) } catch (_: InterruptedException) { return@Thread }
+            }
+        }.also { it.isDaemon = true }
+        if (sessions.update(session) { session.watchdog = thread }) thread.start()
+    }
+
+    private fun socksPortFromConfig(configuration: String): Int {
+        val inbounds = JSONObject(configuration).getJSONArray("inbounds")
+        for (index in 0 until inbounds.length()) {
+            val inbound = inbounds.getJSONObject(index)
+            if (inbound.optString("type") == "socks" && inbound.optString("tag") == "socks-in") {
+                return inbound.getInt("listen_port").also { require(it in 1..65535) { "Invalid SOCKS port" } }
+            }
+        }
+        throw IllegalArgumentException("Missing socks-in inbound")
+    }
+
+    private fun waitForCoreReady(session: Session, process: Process, port: Int, timeout: Long): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeout
+        while (sessions.isCurrent(session) && coreAlive(process) && SystemClock.elapsedRealtime() < deadline) {
+            try {
+                Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 250) }
+                if (CoreReadinessProbe.isReady(CLASH_PORT, session.controllerSecret) && coreAlive(process)) return true
+                Thread.sleep(100)
+            }
+            catch (_: Exception) { Thread.sleep(100) }
         }
         return false
     }
 
-    private fun waitForPortFree(host: String, port: Int, timeoutMs: Long) {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            try {
-                Socket().use { it.connect(InetSocketAddress(host, port), 200) }
-                Thread.sleep(200)
-            } catch (_: Exception) {
-                return
-            }
+    private fun waitForPortFree(session: Session, port: Int, timeout: Long): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeout
+        while (sessions.isCurrent(session) && SystemClock.elapsedRealtime() < deadline) {
+            try { Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 200) }; Thread.sleep(100) }
+            catch (_: java.io.IOException) { return sessions.isCurrent(session) }
         }
-        Log.w(TAG, "Port $port still busy after ${timeoutMs}ms, proceeding anyway")
+        return false
     }
 
-    private fun startStatsPolling(gen: Int) {
-        statsPollThread = Thread {
-            var totalUp = 0L; var totalDown = 0L
-            val startMs = System.currentTimeMillis()
+    private fun startStatsPolling(session: Session) {
+        val thread = Thread {
+            var totalUp = 0L
+            var totalDown = 0L
+            val started = SystemClock.elapsedRealtime()
+            val connection = URL("http://127.0.0.1:$CLASH_PORT/traffic").openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.setRequestProperty("Authorization", "Bearer ${session.controllerSecret}")
+            if (!sessions.update(session) { session.statsConnection = connection }) {
+                connection.disconnect()
+                return@Thread
+            }
             try {
-                val conn = URL("http://127.0.0.1:$CLASH_PORT/traffic").openConnection() as HttpURLConnection
-                conn.connectTimeout = 5000; conn.readTimeout = 0
-                statsConnection = conn
-                conn.connect()
-                conn.inputStream.bufferedReader().use { reader ->
-                    var line = reader.readLine()
-                    while (line != null && isRunning && generation == gen) {
-                        try {
-                            val j = JSONObject(line)
-                            val up = j.optLong("up"); val dn = j.optLong("down")
-                            totalUp += up; totalDown += dn
-                            NativeBindings.pushStats(up, dn, totalUp, totalDown,
-                                (System.currentTimeMillis() - startMs) / 1000)
-                        } catch (_: Exception) {}
-                        line = reader.readLine()
+                connection.inputStream.bufferedReader().use { reader ->
+                    while (sessions.isCurrent(session)) {
+                        val line = reader.readLine() ?: break
+                        val json = JSONObject(line)
+                        val up = json.optLong("up")
+                        val down = json.optLong("down")
+                        totalUp += up
+                        totalDown += down
+                        NativeBindings.pushStats(up, down, totalUp, totalDown, (SystemClock.elapsedRealtime() - started) / 1000) { action ->
+                            sessions.update(session) { if (activeService === this) action() }
+                        }
                     }
                 }
-            } catch (e: Exception) {
-                if (isRunning && generation == gen) Log.w(TAG, "Clash API: ${e.message}")
-                val t0 = System.currentTimeMillis()
-                while (isRunning && generation == gen) {
-                    try {
-                        NativeBindings.pushStats(0, 0, 0, 0, (System.currentTimeMillis() - t0) / 1000)
-                        Thread.sleep(1000)
-                    } catch (_: InterruptedException) { break }
-                }
+            } catch (_: Exception) {
+                if (sessions.isCurrent(session)) Log.w(TAG, "VPN traffic measurements are unavailable")
             } finally {
-                statsConnection = null
+                connection.disconnect()
             }
-        }.also { it.isDaemon = true; it.start() }
+        }.also { it.isDaemon = true }
+        if (sessions.update(session) { session.statsThread = thread }) thread.start()
     }
 
-    private fun stopTunnel() {
-        val nothingToKill = !isRunning && sbProcess == null && t2sPid < 0
-        if (nothingToKill) {
-            // Watchdog already cleaned up processes — service might still be a foreground
-            // zombie. Ensure it stops so the notification disappears.
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return
+    private fun retiredDispatch(retirement: VpnSessionGate.Retirement<Session>): ((() -> Unit) -> Unit) = { action ->
+        sessions.ifRetired(retirement.revision) {
+            synchronized(serviceOwnerLock) { if (activeService === this) action() }
         }
-        Log.d(TAG, "Stopping VPN tunnel")
-        generation++  // invalidate all background threads from previous connections
-        cleanupResources()
-        NativeBindings.onVpnStopped()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
-    private fun notifyError(msg: String, gen: Int) {
-        if (generation != gen) return  // superseded — don't clobber a newer session
-        isRunning = false
-        // Null these out so onDestroy's wasActive check won't double-fire onVpnStopped.
-        sbProcess = null
-        t2sPid = -1
-        NativeBindings.onVpnError(msg)
-        NativeBindings.onVpnStopped()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+    private fun finishRetirement(retirement: VpnSessionGate.Retirement<Session>, message: String?, request: String?, stopService: Boolean) {
+        retirement.session?.let { retirements.retain(this to it) }
+        val dispatch = retiredDispatch(retirement)
+        NativeBindings.onVpnStopping { action -> dispatch { if (nativeState == "DISCONNECTING") action() } }
+        val confirmed = drainRetirements()
+        if (confirmed) {
+            sessions.ifRetired(retirement.revision) { state("DISCONNECTED") }
+            if (message != null) NativeBindings.onVpnError(message, dispatch)
+            NativeBindings.onVpnStopped(dispatch)
+        } else if (message != null) {
+            NativeBindings.onVpnError("VPN stop could not be confirmed", dispatch)
+        }
+        if (request != null) NativeBindings.completeStop(request, if (confirmed) null else "VPN stop could not be confirmed") {
+            var ownsStopped = false
+            dispatch { ownsStopped = nativeState == "DISCONNECTED" }
+            ownsStopped
+        }
+        // Complete the captured method before requesting service destruction;
+        // onDestroy is a separate retirement and must not invalidate its reply.
+        if (confirmed && stopService) mainHandler.post {
+                sessions.ifRetired(retirement.revision) {
+                    synchronized(serviceOwnerLock) {
+                        if (activeService === this) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+                    }
+                }
+            }
     }
 
-    override fun onRevoke() { super.onRevoke(); stopTunnel() }
+    private fun notifyError(session: Session, message: String) {
+        sessions.retire(session, transition = { state("DISCONNECTING") }, scheduled = { retirement ->
+            lifecycle.execute { finishRetirement(retirement, message, null, true) }
+        })
+    }
+
+    override fun onRevoke() {
+        super.onRevoke()
+        val retirement = sessions.command { state("DISCONNECTING") }
+        lifecycle.execute { finishRetirement(retirement, null, null, true) }
+    }
 
     override fun onDestroy() {
-        val wasActive = isRunning || sbProcess != null || t2sPid > 0
-        generation++
-        cleanupResources()
-        if (wasActive) try { NativeBindings.onVpnStopped() } catch (ignored: Exception) {}
+        val retirement = sessions.command { if (nativeState != "DISCONNECTED") state("DISCONNECTING") }
+        lifecycle.execute { finishRetirement(retirement, null, null, false) }
         super.onDestroy()
     }
 
     private fun buildNotification(status: String): Notification {
-        createNotificationChannel()
+        val labels = VpnNotificationLabels.forLocale(notificationLocale)
+        createNotificationChannel(labels)
         val intent = packageManager.getLaunchIntentForPackage(packageName)
         val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("HoneyProxyUtility").setContentText(status)
-            .setSmallIcon(android.R.drawable.ic_lock_lock).setContentIntent(pi)
+            .setContentTitle("HoneyProxyUtility").setContentText(labels.statusText(status))
+            .setSmallIcon(R.drawable.ic_stat_honey).setContentIntent(pi)
             .setOngoing(true).setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
@@ -386,11 +548,13 @@ class HoneyProxyVpnService : VpnService() {
             ?.notify(NOTIFICATION_ID, buildNotification(status))
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannel(labels: VpnNotificationLabels) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java) ?: return
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
+        // Android preserves the user's channel preferences when the same ID
+        // is registered again; name and description can follow the app language.
         nm.createNotificationChannel(NotificationChannel(
-            CHANNEL_ID, "HoneyProxyUtility VPN", NotificationManager.IMPORTANCE_LOW
-        ).apply { description = "HoneyProxyUtility VPN connection status"; setShowBadge(false) })
+            CHANNEL_ID, labels.channelName, NotificationManager.IMPORTANCE_LOW
+        ).apply { description = labels.channelDescription; setShowBadge(false) })
     }
 }

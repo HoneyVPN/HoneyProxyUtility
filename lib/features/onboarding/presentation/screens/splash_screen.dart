@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../app/honey_mark.dart';
 
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
@@ -14,9 +15,12 @@ class SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.shield_outlined, size: 72, color: Color(0xFFC5A55A)),
+            HoneyMark(size: 72, color: Color(0xFFC8A96E)),
             SizedBox(height: 16),
-            Text('Honey', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
+            Text(
+              'Honey',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+            ),
           ],
         ),
       ),

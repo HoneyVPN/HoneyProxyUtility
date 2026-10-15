@@ -43,8 +43,8 @@ class NaiveParser extends BaseProxyParser<NaiveConfig> {
       name: BaseProxyParser.decodeUri(uri.fragment),
       host: host,
       port: uri.port == 0 ? 443 : uri.port,
-      username: username,
-      password: password,
+      username: BaseProxyParser.decodeUri(username),
+      password: BaseProxyParser.decodeUri(password),
       scheme: scheme,
     );
   }

@@ -2,404 +2,398 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_v2ray/flutter_v2ray.dart';
+import 'package:flutter/foundation.dart';
+import '../../domain/entities/vpn_core_status.dart';
 import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../settings/data/models/app_settings.dart';
+import '../windows/windows_session.dart';
+import '../windows/windows_service_backend.dart';
+import '../singbox/geo_data_manager.dart';
+import '../singbox/provider_geo_bundle.dart';
+import '../../../diagnostics/data/windows_core_diagnostics.dart';
 
 final _log = Logger('WindowsVpnDatasource');
 
 class WindowsVpnDatasource {
-  final void Function(V2RayStatus) onStatusChanged;
-  Process? _sbProcess;
-  StreamSubscription<String>? _statsSub;
-  Timer? _fallbackTimer;
-  DateTime? _connectedAt;
-  int _totalUp   = 0;
-  int _totalDown = 0;
-  bool _tunMode  = false;
-  String? _tunStopFilePath;
+  ProviderGeoBundle? _providerRouting;
+  void bindProviderRouting(ProviderGeoBundle? bundle) =>
+      _providerRouting = bundle;
+  Map<String, dynamic> _composeGeo(
+    Map<String, dynamic> config,
+    AppSettings settings,
+    ProviderGeoBundle? bundle,
+  ) {
+    config['route'] = composeProviderGeoRoute(
+      config['route'] as Map<String, dynamic>,
+      settings,
+      bundle,
+    );
+    return config;
+  }
 
-  static const _socksPort = 10808;
-  static const _httpPort  = 10809;
+  WindowsVpnDatasource({
+    required this.onStatusChanged,
+    this.onError,
+    WindowsSessionBackend? sessionBackend,
+  }) : _sessions = WindowsSessionController(
+         sessionBackend ?? HybridWindowsSessionBackend(),
+       );
+
+  final void Function(VpnCoreStatus) onStatusChanged;
+  final void Function(String)? onError;
+  final WindowsSessionController _sessions;
+  final _coreDiagnostics = WindowsCoreDiagnostics();
+  StreamSubscription<String>? _statsSub;
+  HttpClient? _statsClient;
+  Timer? _healthTimer;
+  DateTime? _connectedAt;
+  int _totalUp = 0;
+  int _totalDown = 0;
+  int _generation = 0;
+  bool _checkingHealth = false;
   static const _clashPort = 9090;
 
-  WindowsVpnDatasource({required this.onStatusChanged});
-
-  Future<void> initialize() async {}
+  Future<void> initialize() => _sessions.recover();
   Future<bool> requestPermission() async => true;
+
+  /// Never borrow an orphan core or the selected profile when reopening.
+  Future<VpnCoreStatus> readCurrentStatus() async {
+    await _sessions.recover();
+    return const VpnCoreStatus(state: 'DISCONNECTED');
+  }
+
+  Future<bool> checkRunning() async => _sessions.running();
+  void reattach() {}
 
   Future<void> start(
     ParsedProxy proxy, {
     ConnectionMode mode = ConnectionMode.tunnel,
     AppSettings settings = const AppSettings(),
   }) async {
+    settings.validateNetworkSettings(
+      validateProxyPorts: mode == ConnectionMode.proxy,
+    );
+    _validateWindowsReserved(proxy);
     await stop();
-    _tunMode = mode == ConnectionMode.tunnel;
-
-    final exeDir = File(Platform.resolvedExecutable).parent;
-    final sbExe  = File('${exeDir.path}/sing-box.exe');
-    if (!sbExe.existsSync()) {
-      throw Exception('sing-box.exe not found at ${sbExe.path}');
+    final generation = ++_generation;
+    final tunnel = mode == ConnectionMode.tunnel;
+    onStatusChanged(const VpnCoreStatus(state: 'CONNECTING'));
+    String? physicalIface;
+    var proxyIps = <String>[];
+    if (tunnel) {
+      physicalIface = await _detectPhysicalInterface();
+      proxyIps = await _resolveHost(proxy.host);
     }
-
-    onStatusChanged(V2RayStatus(state: 'CONNECTING'));
-
-    if (_tunMode) {
-      await _startTunElevated(proxy, sbExe, settings);
-    } else {
-      await _startProxy(proxy, sbExe, settings);
+    final support = await getApplicationSupportDirectory();
+    // Rule sets are shipped with the app. First connection must not depend on
+    // direct GitHub access before the selected VPN can even start.
+    final geoPaths = usesBuiltInGeo(settings)
+        ? await GeoDataManager.ensureReady()
+        : <String, String>{};
+    if (generation != _generation) return;
+    final cachePath = '${support.path}/honeyvpn_cache.db';
+    final config = tunnel
+        ? _buildTunConfig(
+            proxy,
+            settings,
+            bindInterface: physicalIface,
+            excludeAddresses: proxyIps,
+            cachePath: cachePath,
+            geoPaths: geoPaths,
+          )
+        : _buildProxyConfig(
+            proxy,
+            settings,
+            cachePath: cachePath,
+            geoPaths: geoPaths,
+          );
+    final session = await _sessions.start(
+      _composeGeo(config, settings, _providerRouting),
+      tunnel: tunnel,
+      // The supervisor's wire schema includes this field in both modes. TUN
+      // has no HTTP listener, so a saved proxy-only port cannot block it.
+      httpPort: tunnel ? 2081 : settings.httpPort,
+      proxyIp: proxyIps.isEmpty ? null : proxyIps.first.replaceAll('/32', ''),
+    );
+    if (generation != _generation) {
+      await _sessions.stop();
+      return;
     }
-  }
-
-  // ── TUN mode ─────────────────────────────────────────────────────────────────
-
-  Future<void> _startTunElevated(ParsedProxy proxy, File sbExe, AppSettings settings) async {
-    final tmp      = await getTemporaryDirectory();
-    final cfgFile  = File('${tmp.path}/honeyvpn_sb.json');
-    final psFile   = File('${tmp.path}/honeyvpn_tun.ps1');
-    final stopFile = File('${tmp.path}/honeyvpn_tun_stop');
-    final logFile  = File('${tmp.path}/honeyvpn_sb.log');
-    _tunStopFilePath = stopFile.path;
-
-    // Detect physical interface before TUN hijacks all routes.
-    // This name is injected into the proxy outbound as bind_interface so
-    // sing-box sends traffic to the VPN server via the real NIC, not TUN.
-    final physicalIface = await _detectPhysicalInterface();
-
-    // Resolve proxy hostname to IP before TUN starts.
-    final proxyIps = await _resolveHost(proxy.host);
-    // Raw IP without CIDR for OS route command.
-    final proxyIp  = proxyIps.isNotEmpty ? proxyIps.first.replaceAll('/32', '') : null;
-
-    final appSupport = await getApplicationSupportDirectory();
-    final cachePath  = '${appSupport.path}/honeyvpn_cache.db';
-    await cfgFile.writeAsString(jsonEncode(_buildTunConfig(proxy, bindInterface: physicalIface, excludeAddresses: proxyIps, cachePath: cachePath)));
-    if (stopFile.existsSync()) stopFile.deleteSync();
-
-    final sbPath   = sbExe.path.replaceAll("'", "''");
-    final cfgPath  = cfgFile.path.replaceAll("'", "''");
-    final stopPath = stopFile.path.replaceAll("'", "''");
-    final logPath  = logFile.path.replaceAll("'", "''");
-
-    // Build PowerShell script.
-    // IMPORTANT: before starting sing-box we add an OS-level static route for the
-    // proxy server IP via the physical default gateway. This guarantees that
-    // sing-box's own outbound connection to the VPN server never enters the TUN
-    // interface, preventing the routing loop — regardless of sing-box version.
-    final psLines = <String>[
-      r"$env:ENABLE_DEPRECATED_LEGACY_DNS_SERVERS = 'true'",
-      r"$env:ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER = 'true'",
-      r"$env:ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM = 'true'",
-      "Remove-Item -Path '$stopPath' -ErrorAction SilentlyContinue",
-      "Remove-Item -Path '$logPath' -ErrorAction SilentlyContinue",
-      // Find physical default gateway (before TUN routes are installed).
-      r"$gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | " +
-          r"Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1).NextHop",
-      if (proxyIp != null)
-        r"if ($gw) { route add " + proxyIp + r" mask 255.255.255.255 $gw metric 1 2>&1 | Out-Null }",
-      r"$proc = Start-Process -FilePath '" + sbPath +
-          r"' -ArgumentList @('run', '-c', '" + cfgPath +
-          r"') -NoNewWindow -PassThru -RedirectStandardError '" + logPath + r"'",
-      r"while (-not $proc.HasExited -and -not (Test-Path '" + stopPath + r"')) {",
-      r"    Start-Sleep -Milliseconds 300",
-      r"}",
-      r"if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }",
-      if (proxyIp != null)
-        r"route delete " + proxyIp + r" mask 255.255.255.255 2>&1 | Out-Null",
-      "Remove-Item -Path '$stopPath' -ErrorAction SilentlyContinue",
-    ];
-
-    await psFile.writeAsString(psLines.join("\r\n"));
-
-    // Embed actual path via Dart interpolation.
-    // Use array-style ArgumentList so paths with spaces work correctly.
-    final psPathPs = psFile.path.replaceAll("'", "''");
-    await Process.run('powershell', [
-      '-NoProfile', '-NonInteractive', '-Command',
-      "Start-Process powershell -Verb RunAs -WindowStyle Hidden "
-          "-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','$psPathPs')",
-    ]);
-
     _connectedAt = DateTime.now();
     _totalUp = 0;
     _totalDown = 0;
-
-    // Poll Clash API until sing-box is ready (UAC + PowerShell startup can take 10+ s).
-    bool started = false;
-    final deadline = DateTime.now().add(const Duration(seconds: 15));
-    while (!started && DateTime.now().isBefore(deadline)) {
-      await Future.delayed(const Duration(milliseconds: 800));
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-      try {
-        final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/'));
-        await req.close();
-        started = true;
-      } catch (_) {
-      } finally {
-        client.close();
-      }
-    }
-
-    if (!started) {
-      _tunStopFilePath = null;
-      _connectedAt = null;
-      String sbDetail = '';
-      try {
-        final log = logFile.readAsStringSync().trim();
-        if (log.isNotEmpty) {
-          sbDetail = log.split('\n').lastWhere((l) => l.trim().isNotEmpty, orElse: () => '').trim();
-        }
-      } catch (_) {}
-      throw Exception(
-        'TUN режим не запустился.\nВозможные причины:\n'
-        '• Запрос администратора был отклонён\n'
-        '• sing-box завершился с ошибкой'
-        '${sbDetail.isNotEmpty ? "\n\n$sbDetail" : ""}',
-      );
-    }
-
-    onStatusChanged(V2RayStatus(state: 'CONNECTED'));
-    unawaited(_startStatsStream());
-  }
-
-  // ── Proxy mode ────────────────────────────────────────────────────────────────
-
-  Future<void> _startProxy(ParsedProxy proxy, File sbExe, AppSettings settings) async {
-    // Kill any leftover sing-box.exe from a previous crashed session.
-    await Process.run('taskkill', ['/F', '/IM', 'sing-box.exe'],
-        runInShell: true).catchError((_) => ProcessResult(0, 0, '', ''));
-
-    final tmp       = await getTemporaryDirectory();
-    final appSupport = await getApplicationSupportDirectory();
-    final cfgFile   = File('${tmp.path}/honeyvpn_sb.json');
-    // Persistent cache in AppData so rule sets survive restarts (avoids re-downloading on every connect).
-    final cachePath = '${appSupport.path}/honeyvpn_cache.db';
-    await cfgFile.writeAsString(jsonEncode(_buildProxyConfig(proxy, settings, cachePath: cachePath)));
-
-    final stderrBuf = StringBuffer();
-    final proc = await Process.start(
-      sbExe.path, ['run', '-c', cfgFile.path],
-      environment: {
-        ...Platform.environment,
-        'ENABLE_DEPRECATED_LEGACY_DNS_SERVERS': 'true',
-        'ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM': 'true',
-        'ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER': 'true',
-      },
+    onStatusChanged(
+      const VpnCoreStatus(
+        state: 'CONNECTED',
+        trafficAvailable: false,
+        ratesAvailable: false,
+      ),
     );
-    _sbProcess   = proc;
-    _connectedAt = DateTime.now();
-    _totalUp     = 0;
-    _totalDown   = 0;
-
-    proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((s) => stderrBuf.write(s));
-    proc.exitCode.then((code) {
-      if (_sbProcess == proc) {
-        _sbProcess = null;
-        onStatusChanged(V2RayStatus(state: 'DISCONNECTED'));
-      }
+    _healthTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_checkingHealth) unawaited(_checkHealth(generation));
     });
-
-    // Poll Clash API until sing-box is ready (rule set downloads can take 30+ s on first run).
-    bool started = false;
-    final deadline = DateTime.now().add(const Duration(seconds: 60));
-    while (!started && DateTime.now().isBefore(deadline)) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (_sbProcess == null) break;
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 1);
-      try {
-        final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/'));
-        await req.close();
-        started = true;
-      } catch (_) {
-      } finally {
-        client.close();
-      }
-    }
-
-    if (_sbProcess == null || !started) {
-      _sbProcess?.kill();
-      _sbProcess = null;
-      final err      = stderrBuf.toString().trim();
-      final lastLine = err.isNotEmpty ? err.split('\n').last : 'unknown error';
-      throw Exception('sing-box не запустился: $lastLine');
-    }
-
-    await _setSystemProxy('127.0.0.1', settings.httpPort);
-    onStatusChanged(V2RayStatus(state: 'CONNECTED'));
-    unawaited(_startStatsStream());
+    unawaited(_startStatsStream(session, generation));
+    unawaited(
+      _coreDiagnostics.attach(
+        session.nonce,
+        isCurrent: () =>
+            generation == _generation && identical(_sessions.owned, session),
+      ),
+    );
   }
 
-  // ── Stats stream ──────────────────────────────────────────────────────────────
-
-  Future<void> _startStatsStream() async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+  Future<void> _checkHealth(int generation) async {
+    if (generation != _generation) return;
+    _checkingHealth = true;
     try {
-      final req  = await client.getUrl(Uri.parse('http://127.0.0.1:$_clashPort/traffic'));
-      final resp = await req.close();
+      final health = await _sessions.health();
+      if (generation != _generation) return;
+      if (health == WindowsSessionHealth.unavailable) {
+        // A timeout on the statistics/control API is not proof that the owned
+        // process exited. Keep the disconnect control and retry next poll.
+        _log.warning('Windows VPN status probe unavailable; session retained');
+        return;
+      }
+      if (health == WindowsSessionHealth.stopped) {
+        await _cancelStats();
+        if (generation != _generation) return;
+        await _sessions.stop();
+        if (generation != _generation) return;
+        _connectedAt = null;
+        onError?.call(
+          const WindowsSessionException(
+            WindowsSessionFailure.connectionLost,
+          ).code,
+        );
+      }
+    } catch (_) {
+      if (generation == _generation) {
+        await _cancelStats();
+        if (generation != _generation) return;
+        _connectedAt = null;
+        onError?.call(
+          const WindowsSessionException(
+            WindowsSessionFailure.recoveryRequired,
+          ).code,
+        );
+      }
+    } finally {
+      _checkingHealth = false;
+    }
+  }
 
-      _statsSub = resp
+  Future<void> _startStatsStream(WindowsSession session, int generation) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 5)
+      ..findProxy = (_) => 'DIRECT';
+    _statsClient = client;
+    try {
+      final request = await client.getUrl(
+        Uri.parse('http://127.0.0.1:$_clashPort/traffic'),
+      );
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer ${session.nonce}',
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 5),
+      );
+      if (generation != _generation || response.statusCode != 200) {
+        client.close(force: true);
+        return;
+      }
+      _statsSub = response
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-        (line) {
-          if (line.trim().isEmpty) return;
-          final connectedAt = _connectedAt;
-          if (connectedAt == null) return;
-          try {
-            final data = json.decode(line) as Map<String, dynamic>;
-            final up   = (data['up']   as num? ?? 0).toInt();
-            final down = (data['down'] as num? ?? 0).toInt();
-            _totalUp   += up;
-            _totalDown += down;
-
-            final elapsed = DateTime.now().difference(connectedAt);
-            final h = elapsed.inHours.toString().padLeft(2, '0');
-            final m = (elapsed.inMinutes % 60).toString().padLeft(2, '0');
-            final s = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
-
-            onStatusChanged(V2RayStatus(
-              state:         'CONNECTED',
-              uploadSpeed:   up,
-              downloadSpeed: down,
-              upload:        _totalUp,
-              download:      _totalDown,
-              duration:      '$h:$m:$s',
-            ));
-          } catch (e) {
-            _log.fine('Stats parse error: $e');
-          }
-        },
-        onError: (e) {
-          _log.warning('Stats stream error', e);
-          _startFallbackTimer();
-        },
-      );
-    } catch (e) {
-      _log.warning('Cannot connect to Clash stats API', e);
-      _startFallbackTimer();
-    } finally {
-      client.close();
+            (line) {
+              final connectedAt = _connectedAt;
+              if (generation != _generation ||
+                  connectedAt == null ||
+                  line.length > 16384)
+                return;
+              try {
+                final data = jsonDecode(line) as Map<String, dynamic>;
+                final up = data['up'];
+                final down = data['down'];
+                if (up is! num ||
+                    down is! num ||
+                    !up.isFinite ||
+                    !down.isFinite ||
+                    up < 0 ||
+                    down < 0)
+                  return;
+                _totalUp += up.toInt();
+                _totalDown += down.toInt();
+                onStatusChanged(
+                  VpnCoreStatus(
+                    state: 'CONNECTED',
+                    uploadSpeed: up.toInt(),
+                    downloadSpeed: down.toInt(),
+                    upload: _totalUp,
+                    download: _totalDown,
+                    duration: _duration(DateTime.now().difference(connectedAt)),
+                  ),
+                );
+              } catch (_) {
+                /* Invalid traffic data cannot establish a connection. */
+              }
+            },
+            onError: (Object _) {
+              _markStatsUnavailable(generation);
+              client.close(force: true);
+            },
+            onDone: () => _markStatsUnavailable(generation),
+          );
+    } catch (_) {
+      _markStatsUnavailable(generation);
+      client.close(force: true);
     }
   }
 
-  void _startFallbackTimer() {
-    if (_fallbackTimer != null) return;
-    _fallbackTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final connectedAt = _connectedAt;
-      if (connectedAt == null) return;
-      final elapsed = DateTime.now().difference(connectedAt);
-      final h = elapsed.inHours.toString().padLeft(2, '0');
-      final m = (elapsed.inMinutes % 60).toString().padLeft(2, '0');
-      final s = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
-      onStatusChanged(V2RayStatus(state: 'CONNECTED', duration: '$h:$m:$s'));
-    });
+  void _markStatsUnavailable(int generation) {
+    final connectedAt = _connectedAt;
+    if (generation != _generation || connectedAt == null) return;
+    onStatusChanged(
+      VpnCoreStatus(
+        state: 'CONNECTED',
+        trafficAvailable: false,
+        ratesAvailable: false,
+        duration: _duration(DateTime.now().difference(connectedAt)),
+      ),
+    );
   }
 
-  // ── Stop ──────────────────────────────────────────────────────────────────────
+  static String _duration(Duration elapsed) =>
+      '${elapsed.inHours.toString().padLeft(2, '0')}:'
+      '${(elapsed.inMinutes % 60).toString().padLeft(2, '0')}:'
+      '${(elapsed.inSeconds % 60).toString().padLeft(2, '0')}';
 
-  Future<void> stop() async {
+  Future<void> _cancelStats() async {
+    _healthTimer?.cancel();
+    _healthTimer = null;
+    _statsClient?.close(force: true);
+    _statsClient = null;
+    await _coreDiagnostics.stop();
     await _statsSub?.cancel();
     _statsSub = null;
-    _fallbackTimer?.cancel();
-    _fallbackTimer = null;
-    _connectedAt  = null;
-
-    if (_sbProcess != null) {
-      _sbProcess!.kill();
-      _sbProcess = null;
-    } else {
-      _signalTunStop();
-    }
-    _tunMode         = false;
-    _tunStopFilePath = null;
-
-    try {
-      await _clearSystemProxy();
-    } catch (e) {
-      _log.warning('Failed to clear system proxy', e);
-    }
-    onStatusChanged(V2RayStatus(state: 'DISCONNECTED'));
   }
 
-  void _signalTunStop() {
-    final path = _tunStopFilePath;
-    if (path == null) return;
-    try {
-      File(path).writeAsStringSync('stop');
-    } catch (e) {
-      _log.warning('Failed to write TUN stop signal', e);
-    }
+  Future<void> stop() async {
+    _generation++;
+    await _cancelStats();
+    await _sessions.stop();
+    _connectedAt = null;
+    onStatusChanged(const VpnCoreStatus(state: 'DISCONNECTED'));
   }
 
   Future<int> ping(ParsedProxy proxy) async {
-    Socket? sock;
+    Socket? socket;
     try {
-      final sw = Stopwatch()..start();
-      sock = await Socket.connect(proxy.host, proxy.port,
-          timeout: const Duration(seconds: 5));
-      sw.stop();
-      return sw.elapsedMilliseconds;
+      final watch = Stopwatch()..start();
+      socket = await Socket.connect(
+        proxy.host,
+        proxy.port,
+        timeout: const Duration(seconds: 5),
+      );
+      return watch.elapsedMilliseconds;
     } catch (_) {
       return -1;
     } finally {
-      await sock?.close();
+      await socket?.close();
     }
   }
 
   void dispose() {
-    _statsSub?.cancel();
-    _statsSub = null;
-    _fallbackTimer?.cancel();
-    _fallbackTimer = null;
-    _connectedAt = null;
-    _sbProcess?.kill();
-    _sbProcess = null;
-    _signalTunStop();
-    _clearSystemProxy().catchError((e) {
-      _log.warning('dispose: clear system proxy failed', e);
-    });
-  }
-
-  // ── System proxy ──────────────────────────────────────────────────────────────
-
-  Future<void> _setSystemProxy(String host, int port) async {
-    const k = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
-    await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '1', '/f']);
-    await Process.run('reg', ['add', k, '/v', 'ProxyServer',  '/t', 'REG_SZ',    '/d', '$host:$port', '/f']);
-  }
-
-  Future<void> _clearSystemProxy() async {
-    const k = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings';
-    await Process.run('reg', ['add', k, '/v', 'ProxyEnable', '/t', 'REG_DWORD', '/d', '0', '/f']);
+    _generation++;
+    unawaited(_cancelStats());
+    // The supervisor's finally block owns child/routes/proxy cleanup.
+    unawaited(
+      _sessions.stop().catchError((Object _) {
+        _log.warning('Windows VPN cleanup was not confirmed during disposal');
+      }),
+    );
   }
 
   // ── Config builders ───────────────────────────────────────────────────────────
 
-  Map<String, dynamic> _buildProxyConfig(ParsedProxy proxy, AppSettings s, {String? cachePath}) {
+  /// Builds the exact configuration used for a session, without starting processes.
+  @visibleForTesting
+  Map<String, dynamic> buildConfiguration(
+    ParsedProxy proxy,
+    AppSettings settings, {
+    ConnectionMode mode = ConnectionMode.tunnel,
+    String? bindInterface,
+    List<String> excludeAddresses = const [],
+    Map<String, String>? geoPaths,
+    ProviderGeoBundle? providerRouting,
+  }) {
+    _validateWindowsReserved(proxy);
+    final config = mode == ConnectionMode.tunnel
+        ? _buildTunConfig(
+            proxy,
+            settings,
+            bindInterface: bindInterface,
+            excludeAddresses: excludeAddresses,
+            geoPaths: geoPaths,
+          )
+        : _buildProxyConfig(proxy, settings, geoPaths: geoPaths);
+    return _composeGeo(config, settings, providerRouting ?? _providerRouting);
+  }
+
+  static void _validateWindowsReserved(ParsedProxy proxy) {
+    final reserved = switch (proxy) {
+      WireGuardConfig c => c.reserved,
+      AmneziaWGConfig c => c.reserved,
+      _ => null,
+    };
+    if (reserved != null &&
+        reserved.isNotEmpty &&
+        (reserved.length != 3 || reserved.any((byte) => byte != 0))) {
+      // The newer Windows core removed the outgoing packet-byte rewrite.
+      // Keep the stored profile intact for cores which still support it.
+      throw UnsupportedError(
+        'WireGuard reserved bytes are unsupported by this Windows core.',
+      );
+    }
+  }
+
+  Map<String, dynamic> _buildProxyConfig(
+    ParsedProxy proxy,
+    AppSettings s, {
+    String? cachePath,
+    Map<String, String>? geoPaths,
+  }) {
+    s.validateNetworkSettings();
     final listen = s.allowLanConnections ? '0.0.0.0' : '127.0.0.1';
 
     final routeRules = <Map<String, dynamic>>[
       {'action': 'sniff'},
-      if (s.fragmentationEnabled) {'action': 'tls_fragment'},
+      if (s.fragmentationEnabled)
+        {
+          'action': 'route-options',
+          'tls_fragment': true,
+          'tls_fragment_fallback_delay': '500ms',
+        },
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
     final ruleSets = <Map<String, dynamic>>[];
 
-    if (s.routingMode == RoutingMode.bypassRU || s.routingMode == RoutingMode.rules) {
+    if (usesBuiltInGeo(s)) {
       routeRules.addAll([
-        {'rule_set': 'ru-blocked',           'outbound': 'proxy'},
+        {'rule_set': 'ru-blocked', 'outbound': 'proxy'},
         {'rule_set': 'ru-blocked-community', 'outbound': 'proxy'},
-        {'rule_set': 're-filter',            'outbound': 'proxy'},
-        {'rule_set': 'ru',                   'outbound': 'direct'},
+        {'rule_set': 're-filter', 'outbound': 'proxy'},
+        {'rule_set': 'ru', 'ip_version': 4, 'outbound': 'direct'},
       ]);
       ruleSets.addAll([
-        _remoteRuleSet('ru-blocked',           'ru-blocked.srs'),
-        _remoteRuleSet('ru-blocked-community', 'ru-blocked-community.srs'),
-        _remoteRuleSet('re-filter',            're-filter.srs'),
-        _remoteRuleSet('ru',                   'ru.srs'),
+        _ruleSet('ru-blocked', 'ru-blocked.srs', geoPaths),
+        _ruleSet('ru-blocked-community', 'ru-blocked-community.srs', geoPaths),
+        _ruleSet('re-filter', 're-filter.srs', geoPaths),
+        _ruleSet('ru', 'ru.srs', geoPaths),
       ]);
     }
 
@@ -408,23 +402,35 @@ class WindowsVpnDatasource {
       if (cachePath != null) 'cache_file': {'enabled': true, 'path': cachePath},
     };
 
-    if (proxy is AmneziaWGConfig) {
+    if (proxy is AmneziaWGConfig || proxy is WireGuardConfig) {
       return {
         'log': {'level': s.logLevel.name},
+        'dns': _dns(s),
         'experimental': experimental,
         'inbounds': [
-          {'type': 'socks', 'tag': 'socks-in', 'listen': listen, 'listen_port': s.socksPort},
-          {'type': 'http',  'tag': 'http-in',  'listen': listen, 'listen_port': s.httpPort},
+          {
+            'type': 'socks',
+            'tag': 'socks-in',
+            'listen': listen,
+            'listen_port': s.socksPort,
+          },
+          {
+            'type': 'http',
+            'tag': 'http-in',
+            'listen': listen,
+            'listen_port': s.httpPort,
+          },
         ],
-        'endpoints': [_buildAwgEndpoint(proxy)],
+        'endpoints': [_buildEndpoint(proxy, s)],
         'outbounds': [
           {'type': 'direct', 'tag': 'direct'},
-          {'type': 'block',  'tag': 'block'},
+          {'type': 'block', 'tag': 'block'},
         ],
         'route': {
           'rules': routeRules,
           if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
           'final': 'proxy',
+          'default_domain_resolver': _domainResolver(s),
           'auto_detect_interface': true,
         },
       };
@@ -432,20 +438,32 @@ class WindowsVpnDatasource {
 
     return {
       'log': {'level': s.logLevel.name},
+      'dns': _dns(s),
       'experimental': experimental,
       'inbounds': [
-        {'type': 'socks', 'tag': 'socks-in', 'listen': listen, 'listen_port': s.socksPort},
-        {'type': 'http',  'tag': 'http-in',  'listen': listen, 'listen_port': s.httpPort},
+        {
+          'type': 'socks',
+          'tag': 'socks-in',
+          'listen': listen,
+          'listen_port': s.socksPort,
+        },
+        {
+          'type': 'http',
+          'tag': 'http-in',
+          'listen': listen,
+          'listen_port': s.httpPort,
+        },
       ],
       'outbounds': [
-        _buildOutbound(proxy),
+        _configuredOutbound(proxy, s),
         {'type': 'direct', 'tag': 'direct'},
-        {'type': 'block',  'tag': 'block'},
+        {'type': 'block', 'tag': 'block'},
       ],
       'route': {
         'rules': routeRules,
         if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
         'final': 'proxy',
+        'default_domain_resolver': _domainResolver(s),
         'auto_detect_interface': true,
       },
     };
@@ -453,11 +471,22 @@ class WindowsVpnDatasource {
 
   static Future<String?> _detectPhysicalInterface() async {
     try {
-      final r = await Process.run('powershell', [
-        '-NoProfile', '-NonInteractive', '-Command',
-        r"(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "
-        r"Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1).InterfaceAlias",
-      ]);
+      final r = await Process.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        // Match the supervisor's explicit IPv4 gateway selector, including
+        // deterministic ties. Route objects need no adapted InterfaceMetric.
+        r"$ErrorActionPreference='Stop'; $metrics=@{}; "
+            r'foreach($i in @(Get-NetIPInterface -AddressFamily IPv4 -ErrorAction Stop)) {'
+            r'$metrics[[int]$i.InterfaceIndex]=[long]$i.InterfaceMetric}; '
+            r'Get-NetRoute -AddressFamily IPv4 -ErrorAction Stop | '
+            r"Where-Object {$_.DestinationPrefix -eq '0.0.0.0/0' -and $_.NextHop -ne '0.0.0.0'} | "
+            r'Sort-Object @{Expression={if(-not $metrics.ContainsKey([int]$_.InterfaceIndex)){throw "missing-interface-metric"}; '
+            r'[long]$_.RouteMetric+$metrics[[int]$_.InterfaceIndex]}}, InterfaceIndex, NextHop | '
+            r'Select-Object -First 1 -ExpandProperty InterfaceAlias',
+      ]).timeout(const Duration(seconds: 5));
+      if (r.exitCode != 0) return null;
       final name = r.stdout.toString().trim();
       return name.isNotEmpty ? name : null;
     } catch (_) {
@@ -469,8 +498,9 @@ class WindowsVpnDatasource {
     final isIp = RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(host);
     if (isIp) return ['$host/32'];
     try {
-      final addrs = await InternetAddress.lookup(host)
-          .timeout(const Duration(seconds: 5));
+      final addrs = await InternetAddress.lookup(
+        host,
+      ).timeout(const Duration(seconds: 5));
       return addrs
           .where((a) => a.type == InternetAddressType.IPv4)
           .map((a) => '${a.address}/32')
@@ -481,72 +511,86 @@ class WindowsVpnDatasource {
   }
 
   Map<String, dynamic> _buildTunConfig(
-    ParsedProxy proxy, {
+    ParsedProxy proxy,
+    AppSettings s, {
     String? bindInterface,
     List<String> excludeAddresses = const [],
     String? cachePath,
+    Map<String, String>? geoPaths,
   }) {
+    s.validateNetworkSettings(validateProxyPorts: false);
     final tunInbound = <String, dynamic>{
       'type': 'tun',
       'tag': 'tun-in',
-      'address': ['198.18.0.1/16'],
+      // DNS preference does not determine which packets Windows routes into
+      // the VPN. Capture both address families, including literal IPv6 URLs.
+      'address': ['198.18.0.1/16', 'fdfe:dcba:9876::1/126'],
       'auto_route': true,
       'strict_route': false,
-      'stack': 'mixed',
+      'stack': s.tunStack.name,
       if (excludeAddresses.isNotEmpty)
         'route_exclude_address': excludeAddresses,
     };
-    final routeRules = [
+    final routeRules = <Map<String, dynamic>>[
       {'action': 'sniff'},
+      if (s.fragmentationEnabled)
+        {
+          'action': 'route-options',
+          'tls_fragment': true,
+          'tls_fragment_fallback_delay': '500ms',
+        },
       {'protocol': 'dns', 'action': 'hijack-dns'},
       {'ip_is_private': true, 'outbound': 'direct'},
     ];
+    final ruleSets = <Map<String, dynamic>>[];
+    if (usesBuiltInGeo(s)) {
+      routeRules.addAll([
+        {'rule_set': 'ru-blocked', 'outbound': 'proxy'},
+        {'rule_set': 'ru-blocked-community', 'outbound': 'proxy'},
+        {'rule_set': 're-filter', 'outbound': 'proxy'},
+        {'rule_set': 'ru', 'ip_version': 4, 'outbound': 'direct'},
+      ]);
+      ruleSets.addAll([
+        _ruleSet('ru-blocked', 'ru-blocked.srs', geoPaths),
+        _ruleSet('ru-blocked-community', 'ru-blocked-community.srs', geoPaths),
+        _ruleSet('re-filter', 're-filter.srs', geoPaths),
+        _ruleSet('ru', 'ru.srs', geoPaths),
+      ]);
+    }
 
     final tunExperimental = <String, dynamic>{
       'clash_api': {'external_controller': '127.0.0.1:$_clashPort'},
       if (cachePath != null) 'cache_file': {'enabled': true, 'path': cachePath},
     };
 
-    if (proxy is AmneziaWGConfig) {
+    if (proxy is AmneziaWGConfig || proxy is WireGuardConfig) {
+      final endpoint = _buildEndpoint(proxy, s);
+      if (bindInterface != null) endpoint['bind_interface'] = bindInterface;
       return {
-        'log': {'level': 'warn'},
-        'dns': {
-          'servers': [
-            {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
-            {'tag': 'local',  'address': 'local',          'detour': 'direct'},
-          ],
-          'rules': [{'outbound': 'any', 'server': 'local'}],
-          'final': 'remote',
-        },
+        'log': {'level': s.logLevel.name},
+        'dns': _dns(s),
         'experimental': tunExperimental,
         'inbounds': [tunInbound],
-        'endpoints': [_buildAwgEndpoint(proxy)],
+        'endpoints': [endpoint],
         'outbounds': [
           {'type': 'direct', 'tag': 'direct'},
         ],
         'route': {
           'rules': routeRules,
+          if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
           'final': 'proxy',
+          'default_domain_resolver': _domainResolver(s),
           'auto_detect_interface': true,
         },
       };
     }
 
-    final proxyOutbound = _buildOutbound(proxy);
+    final proxyOutbound = _configuredOutbound(proxy, s);
     if (bindInterface != null) proxyOutbound['bind_interface'] = bindInterface;
 
     return {
-      'log': {'level': 'warn'},
-      'dns': {
-        'servers': [
-          {'tag': 'remote', 'address': 'udp://8.8.8.8', 'detour': 'proxy'},
-          {'tag': 'local',  'address': 'local',          'detour': 'direct'},
-        ],
-        'rules': [
-          {'outbound': 'any', 'server': 'local'},
-        ],
-        'final': 'remote',
-      },
+      'log': {'level': s.logLevel.name},
+      'dns': _dns(s),
       'experimental': tunExperimental,
       'inbounds': [tunInbound],
       'outbounds': [
@@ -555,27 +599,136 @@ class WindowsVpnDatasource {
       ],
       'route': {
         'rules': routeRules,
+        if (ruleSets.isNotEmpty) 'rule_set': ruleSets,
         'final': 'proxy',
+        'default_domain_resolver': _domainResolver(s),
         'auto_detect_interface': true,
       },
     };
   }
 
-  static String _remoteDns(AppSettings s) => switch (s.dnsPreset) {
-    DnsPreset.cloudflare => 'tls://1.1.1.1',
-    DnsPreset.google     => 'tls://8.8.8.8',
-    DnsPreset.adguard    => 'tls://94.140.14.14',
-    DnsPreset.custom     => s.customDnsUrl.isNotEmpty ? s.customDnsUrl : 'tls://1.1.1.1',
+  Map<String, dynamic> _dns(AppSettings s) => {
+    'servers': [
+      {
+        'tag': 'remote',
+        ..._typedRemoteDns(s),
+        'domain_resolver': _domainResolver(s),
+        'detour': 'proxy',
+      },
+      {'tag': 'local', 'type': 'local', 'detour': 'direct'},
+    ],
+    'rules': <Map<String, dynamic>>[],
+    'final': 'remote',
+    'strategy': _ipStrategy(s),
   };
 
-  static Map<String, dynamic> _remoteRuleSet(String tag, String filename) {
-    const base   = 'https://github.com/runetfreedom/russia-blocked-geoip/raw/release/srs';
-    const adBase = 'https://github.com/SagerNet/sing-geosite/raw/rule-set';
-    final url = filename == 'geosite-category-ads-all.srs' ? '$adBase/$filename' : '$base/$filename';
-    return {'type': 'remote', 'tag': tag, 'format': 'binary', 'url': url, 'download_detour': 'direct', 'update_interval': '7d'};
+  static String _ipStrategy(AppSettings s) => switch (s.preferredIpType) {
+    IpType.ipv4 => 'ipv4_only',
+    IpType.ipv6 => 'ipv6_only',
+    IpType.both => 'prefer_ipv4',
+  };
+
+  static Map<String, dynamic> _domainResolver(AppSettings s) => {
+    'server': 'local',
+    'strategy': _ipStrategy(s),
+  };
+
+  static Map<String, dynamic> _typedRemoteDns(AppSettings s) {
+    final uri = Uri.parse(_remoteDns(s).trim());
+    return {
+      'type': uri.scheme,
+      'server': uri.host,
+      if (uri.hasPort) 'server_port': uri.port,
+      if (uri.scheme == 'https')
+        'path': uri.path.isEmpty ? '/dns-query' : uri.path,
+    };
   }
 
-  Map<String, dynamic> _buildAwgEndpoint(AmneziaWGConfig c) {
+  Map<String, dynamic> _configuredOutbound(ParsedProxy proxy, AppSettings s) {
+    final outbound = _buildOutbound(proxy);
+    if (s.multiplexerEnabled &&
+        !(proxy is VlessConfig && proxy.flow == 'xtls-rprx-vision') &&
+        proxy is! Hysteria2Config &&
+        proxy is! TuicConfig &&
+        proxy is! WireGuardConfig) {
+      outbound['multiplex'] = {
+        'enabled': true,
+        'protocol': 'smux',
+        'max_connections': 4,
+        'min_streams': 4,
+      };
+    }
+    return outbound;
+  }
+
+  static String _remoteDns(AppSettings s) => switch (s.dnsPreset) {
+    DnsPreset.cloudflare => 'https://1.1.1.1/dns-query',
+    DnsPreset.google => 'https://8.8.8.8/dns-query',
+    DnsPreset.adguard => 'https://94.140.14.14/dns-query',
+    DnsPreset.custom =>
+      s.customDnsUrl.isNotEmpty ? s.customDnsUrl : 'https://1.1.1.1/dns-query',
+  };
+
+  static Map<String, dynamic> _ruleSet(
+    String tag,
+    String filename,
+    Map<String, String>? geoPaths,
+  ) {
+    final path = geoPaths?[filename];
+    if (path != null) {
+      return {'type': 'local', 'tag': tag, 'format': 'binary', 'path': path};
+    }
+    if (geoPaths != null) {
+      throw StateError('Bundled routing data is missing');
+    }
+    // Configuration-only callers can omit assets. Runtime always supplies the
+    // complete packaged map, so this fallback is never a startup download.
+    return _remoteRuleSet(tag, filename);
+  }
+
+  static Map<String, dynamic> _remoteRuleSet(String tag, String filename) {
+    const base =
+        'https://github.com/runetfreedom/russia-blocked-geoip/raw/release/srs';
+    const adBase = 'https://github.com/SagerNet/sing-geosite/raw/rule-set';
+    final url = filename == 'geosite-category-ads-all.srs'
+        ? '$adBase/$filename'
+        : '$base/$filename';
+    return {
+      'type': 'remote',
+      'tag': tag,
+      'format': 'binary',
+      'url': url,
+      'download_detour': 'direct',
+      'update_interval': '7d',
+    };
+  }
+
+  Map<String, dynamic> _buildEndpoint(ParsedProxy proxy, AppSettings s) =>
+      switch (proxy) {
+        WireGuardConfig c => {
+          'type': 'wireguard',
+          'tag': 'proxy',
+          'system': false,
+          'domain_resolver': _domainResolver(s),
+          'address': c.addresses,
+          'private_key': c.privateKey,
+          'listen_port': 0,
+          'mtu': c.mtu,
+          'peers': [
+            {
+              'address': c.host,
+              'port': c.port,
+              'public_key': c.publicKey,
+              'allowed_ips': ['0.0.0.0/0', '::/0'],
+              if (c.presharedKey.isNotEmpty) 'pre_shared_key': c.presharedKey,
+            },
+          ],
+        },
+        AmneziaWGConfig c => _buildAwgEndpoint(c, s),
+        _ => throw ArgumentError('Expected a WireGuard endpoint'),
+      };
+
+  Map<String, dynamic> _buildAwgEndpoint(AmneziaWGConfig c, AppSettings s) {
     final peer = <String, dynamic>{
       'address': c.host,
       'port': c.port,
@@ -583,8 +736,11 @@ class WindowsVpnDatasource {
       'allowed_ips': ['0.0.0.0/0', '::/0'],
     };
     if (c.presharedKey.isNotEmpty) peer['pre_shared_key'] = c.presharedKey;
-    if (c.reserved != null) peer['reserved'] = c.reserved;
-    final amnezia = <String, dynamic>{'jc': c.jc, 'jmin': c.jmin, 'jmax': c.jmax};
+    final amnezia = <String, dynamic>{
+      'jc': c.jc,
+      'jmin': c.jmin,
+      'jmax': c.jmax,
+    };
     if (c.s1 != 0) amnezia['s1'] = c.s1;
     if (c.s2 != 0) amnezia['s2'] = c.s2;
     if (c.s3 != 0) amnezia['s3'] = c.s3;
@@ -596,6 +752,7 @@ class WindowsVpnDatasource {
     return {
       'type': 'wireguard',
       'tag': 'proxy',
+      'domain_resolver': _domainResolver(s),
       'address': c.addresses.isNotEmpty ? c.addresses : ['10.0.0.1/32'],
       'private_key': c.privateKey,
       'listen_port': 0,
@@ -606,17 +763,7 @@ class WindowsVpnDatasource {
   }
 
   Map<String, dynamic> _buildOutbound(ParsedProxy proxy) => switch (proxy) {
-    VlessConfig c => {
-      'type': 'vless',
-      'tag': 'proxy',
-      'server': c.host,
-      'server_port': c.port,
-      'uuid': c.uuid,
-      if (c.flow.isNotEmpty) 'flow': c.flow,
-      'tls': _vlessTls(c),
-      if (_hasTransport(c.transport))
-        'transport': _transport(c.transport, c.path, c.transportHost, c.grpcServiceName, c.xhttpMode, c.xPaddingBytes),
-    },
+    VlessConfig c => _vlessOutbound(c),
     VmessConfig c => {
       'type': 'vmess',
       'tag': 'proxy',
@@ -651,27 +798,79 @@ class WindowsVpnDatasource {
       'method': c.method,
       'password': c.password,
     },
-    Hysteria2Config c => {
+    Hysteria2Config c => _hysteria2Outbound(c),
+    TuicConfig c => {
+      'type': 'tuic',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'uuid': c.uuid,
+      'password': c.password,
+      'congestion_control': c.congestionControl,
+      'udp_relay_mode': c.udpRelayMode,
+      'tls': {
+        'enabled': true,
+        if (c.sni.isNotEmpty) 'server_name': c.sni,
+        if (c.alpn.isNotEmpty) 'alpn': c.alpn.split(','),
+        'insecure': c.allowInsecure,
+      },
+    },
+    _ => throw UnsupportedError(
+      '${proxy.protocolLabel} not yet supported on Windows',
+    ),
+  };
+
+  Map<String, dynamic> _vlessOutbound(VlessConfig c) {
+    c.validateCoreCompatibility();
+    return {
+      'type': 'vless',
+      'tag': 'proxy',
+      'server': c.host,
+      'server_port': c.port,
+      'uuid': c.uuid,
+      if (c.encryption.isNotEmpty && c.encryption != 'none')
+        'encryption': c.encryption,
+      if (c.flow.isNotEmpty) 'flow': c.flow,
+      if (c.security.isNotEmpty && c.security != 'none') 'tls': _vlessTls(c),
+      if (_hasTransport(c.transport))
+        'transport': _transport(
+          c.transport,
+          c.path,
+          c.transportHost,
+          c.grpcServiceName,
+          c.xhttpMode,
+          c.xPaddingBytes,
+        ),
+    };
+  }
+
+  Map<String, dynamic> _hysteria2Outbound(Hysteria2Config c) {
+    c.validateCoreCompatibility();
+    return {
       'type': 'hysteria2',
       'tag': 'proxy',
       'server': c.host,
       'server_port': c.port,
       'password': c.auth,
+      if (c.serverPorts.isNotEmpty) 'server_ports': c.serverPorts,
+      if (c.hopInterval.isNotEmpty) 'hop_interval': c.hopInterval,
       'tls': {
         'enabled': true,
         if (c.sni.isNotEmpty) 'server_name': c.sni,
         if (c.insecure) 'insecure': true,
       },
-      if (c.obfs.isNotEmpty) 'obfs': {'type': c.obfs, 'password': c.obfsPassword},
-    },
-    _ => throw UnsupportedError('${proxy.protocolLabel} not yet supported on Windows'),
-  };
+      if (c.obfs.isNotEmpty)
+        'obfs': {'type': c.obfs, 'password': c.obfsPassword},
+    };
+  }
 
   Map<String, dynamic> _vlessTls(VlessConfig c) {
     final tls = <String, dynamic>{'enabled': true};
     if (c.sni.isNotEmpty) tls['server_name'] = c.sni;
-    if (c.fingerprint.isNotEmpty) {
-      tls['utls'] = {'enabled': true, 'fingerprint': c.fingerprint};
+    if (c.effectiveAlpn.isNotEmpty) tls['alpn'] = c.effectiveAlpn;
+    if (c.allowInsecure) tls['insecure'] = true;
+    if (c.effectiveFingerprint.isNotEmpty) {
+      tls['utls'] = {'enabled': true, 'fingerprint': c.effectiveFingerprint};
     }
     if (c.security == 'reality') {
       tls['reality'] = {
@@ -686,8 +885,13 @@ class WindowsVpnDatasource {
   bool _hasTransport(String t) => t.isNotEmpty && t != 'tcp';
 
   Map<String, dynamic> _transport(
-    String type, String path, String host, String grpcService, [String mode = '', String xPadding = '']
-  ) => switch (type) {
+    String type,
+    String path,
+    String host,
+    String grpcService, [
+    String mode = '',
+    String xPadding = '',
+  ]) => switch (type) {
     'ws' => {
       'type': 'ws',
       'path': path.isEmpty ? '/' : path,
@@ -708,7 +912,7 @@ class WindowsVpnDatasource {
       'type': 'xhttp',
       'path': path.isEmpty ? '/' : path,
       if (host.isNotEmpty) 'host': host,
-      if (mode.isNotEmpty) 'mode': mode,
+      'mode': mode.isEmpty ? 'auto' : mode,
       'x_padding_bytes': xPadding.isNotEmpty ? xPadding : '100-1000',
     },
     _ => {'type': type},

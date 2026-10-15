@@ -2,6 +2,8 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <cstdint>
+#include <limits>
 
 #include "resource.h"
 
@@ -123,21 +125,34 @@ Win32Window::~Win32Window() {
 bool Win32Window::Create(const std::wstring& title,
                          const Point& origin,
                          const Size& size) {
-  Destroy();
-
-  const wchar_t* window_class =
-      WindowClassRegistrar::GetInstance()->GetWindowClass();
-
   const POINT target_point = {static_cast<LONG>(origin.x),
                               static_cast<LONG>(origin.y)};
   HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  const int left = Scale(origin.x, scale_factor);
+  const int top = Scale(origin.y, scale_factor);
+  const RECT bounds{left, top, left + Scale(size.width, scale_factor),
+                    top + Scale(size.height, scale_factor)};
+  return CreateWithBounds(title, bounds);
+}
+
+bool Win32Window::CreateWithBounds(const std::wstring& title,
+                                   const RECT& bounds) {
+  const int64_t width = static_cast<int64_t>(bounds.right) - bounds.left;
+  const int64_t height = static_cast<int64_t>(bounds.bottom) - bounds.top;
+  if (width <= 0 || height <= 0 || width > std::numeric_limits<int>::max() ||
+      height > std::numeric_limits<int>::max()) {
+    return false;
+  }
+  Destroy();
+  const wchar_t* window_class =
+      WindowClassRegistrar::GetInstance()->GetWindowClass();
+
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      bounds.left, bounds.top, static_cast<int>(width), static_cast<int>(height),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {

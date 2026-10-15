@@ -1,13 +1,11 @@
-import 'dart:io' show Platform, File;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../../app/app_theme.dart';
+import '../../../../app/l10n/strings.dart';
 import '../../data/log_provider.dart';
+import '../../../diagnostics/presentation/diagnostic_send_sheet.dart';
 
 class LogScreen extends ConsumerStatefulWidget {
   const LogScreen({super.key});
@@ -18,7 +16,6 @@ class LogScreen extends ConsumerStatefulWidget {
 class _LogScreenState extends ConsumerState<LogScreen> {
   final _scrollCtrl = ScrollController();
   bool _autoScroll = true;
-  String? _sbLogContent;
 
   @override
   void dispose() {
@@ -26,36 +23,39 @@ class _LogScreenState extends ConsumerState<LogScreen> {
     super.dispose();
   }
 
-  Future<void> _loadSingboxLog() async {
-    if (kIsWeb || !Platform.isWindows) return;
+  Future<void> _copyAll(List<LogEntry> entries) async {
+    final text = entries
+        .map((e) {
+          final t = e.time;
+          final ts =
+              '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
+          return '$ts  ${e.message}';
+        })
+        .join('\n');
+    var copied = false;
     try {
-      final tmp = await getTemporaryDirectory();
-      final f = File('${tmp.path}/honeyvpn_sb.log');
-      if (f.existsSync()) {
-        setState(() => _sbLogContent = f.readAsStringSync());
-      } else {
-        setState(() => _sbLogContent = '(log file not found — start a connection first)');
-      }
-    } catch (e) {
-      setState(() => _sbLogContent = 'Error reading log: $e');
+      await Clipboard.setData(ClipboardData(text: text));
+      copied = true;
+    } on PlatformException {
+      // Clipboard failures may contain private platform details.
+    } on MissingPluginException {
+      // A platform without clipboard support has the same safe feedback.
     }
-  }
-
-  void _copyAll(List<LogEntry> entries) {
-    final text = entries.map((e) {
-      final t = e.time;
-      final ts = '${t.hour.toString().padLeft(2,'0')}:${t.minute.toString().padLeft(2,'0')}:${t.second.toString().padLeft(2,'0')}';
-      return '$ts  ${e.message}';
-    }).join('\n');
-    Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    final strings = ref.read(stringsProvider);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
+      SnackBar(
+        content: Text(copied ? strings.copied : strings.copyFailed),
+        duration: Duration(seconds: copied ? 1 : 4),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final strings = ref.watch(stringsProvider);
+    final ru = strings.locale == 'ru';
 
     ref.listen(logProvider, (_, __) {
       if (_autoScroll && _scrollCtrl.hasClients) {
@@ -71,22 +71,21 @@ class _LogScreenState extends ConsumerState<LogScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Logs'),
+        title: Text(strings.logsTitle),
         actions: [
-          if (!kIsWeb && Platform.isWindows)
-            IconButton(
-              icon: const Icon(Icons.file_open_outlined),
-              tooltip: 'Load sing-box log',
-              onPressed: _loadSingboxLog,
-            ),
+          IconButton(
+            icon: const Icon(Icons.upload_outlined),
+            tooltip: ru ? 'Отправить диагностику' : 'Send diagnostics',
+            onPressed: () => showDiagnosticSendSheet(context),
+          ),
           IconButton(
             icon: const Icon(Icons.copy_outlined),
-            tooltip: 'Copy all',
+            tooltip: ru ? 'Копировать' : 'Copy',
             onPressed: entries.isEmpty ? null : () => _copyAll(entries),
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
-            tooltip: 'Clear',
+            tooltip: ru ? 'Очистить' : 'Clear',
             onPressed: entries.isEmpty
                 ? null
                 : () => ref.read(logProvider.notifier).clear(),
@@ -95,18 +94,32 @@ class _LogScreenState extends ConsumerState<LogScreen> {
       ),
       body: Column(
         children: [
-          if (entries.isEmpty && _sbLogContent == null)
+          if (entries.isEmpty)
             Expanded(
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.terminal_outlined, size: 48, color: cs.outline),
+                    Icon(
+                      Icons.terminal_outlined,
+                      size: 28,
+                      color: cs.onSurfaceVariant,
+                    ),
                     const SizedBox(height: 12),
-                    Text('No logs yet', style: TextStyle(color: cs.onSurfaceVariant)),
+                    Text(
+                      ru ? 'Журнал пуст' : 'No events yet',
+                      style: TextStyle(color: cs.onSurfaceVariant),
+                    ),
                     const SizedBox(height: 6),
-                    Text('Connect to a server to see events here',
-                        style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                    Text(
+                      ru
+                          ? 'Здесь появятся события подключения.'
+                          : 'Connection events will appear here.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -116,7 +129,8 @@ class _LogScreenState extends ConsumerState<LogScreen> {
               child: NotificationListener<ScrollNotification>(
                 onNotification: (n) {
                   if (n is UserScrollNotification) {
-                    final atBottom = _scrollCtrl.position.pixels >=
+                    final atBottom =
+                        _scrollCtrl.position.pixels >=
                         _scrollCtrl.position.maxScrollExtent - 20;
                     if (_autoScroll != atBottom) {
                       setState(() => _autoScroll = atBottom);
@@ -126,15 +140,12 @@ class _LogScreenState extends ConsumerState<LogScreen> {
                 },
                 child: ListView.builder(
                   controller: _scrollCtrl,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  itemCount: entries.length + (_sbLogContent != null ? 1 : 0),
-                  itemBuilder: (_, i) {
-                    if (i < entries.length) {
-                      return _LogLine(entry: entries[i]);
-                    }
-                    // sing-box raw log at the bottom
-                    return _SingboxLogBlock(content: _sbLogContent!);
-                  },
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  itemCount: entries.length,
+                  itemBuilder: (_, i) => _LogLine(entry: entries[i]),
                 ),
               ),
             ),
@@ -144,7 +155,7 @@ class _LogScreenState extends ConsumerState<LogScreen> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: FloatingActionButton.small(
+                child: TextButton(
                   onPressed: () {
                     setState(() => _autoScroll = true);
                     _scrollCtrl.animateTo(
@@ -153,7 +164,7 @@ class _LogScreenState extends ConsumerState<LogScreen> {
                       curve: Curves.easeOut,
                     );
                   },
-                  child: const Icon(Icons.arrow_downward, size: 18),
+                  child: Text(ru ? 'К последнему событию' : 'Latest event'),
                 ),
               ),
             ),
@@ -171,49 +182,34 @@ class _LogLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final t = entry.time;
-    final ts = '${t.hour.toString().padLeft(2,'0')}:${t.minute.toString().padLeft(2,'0')}:${t.second.toString().padLeft(2,'0')}';
+    final ts =
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(ts, style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: cs.onSurfaceVariant)),
+          Text(
+            ts,
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               entry.message,
               style: TextStyle(
                 fontFamily: 'monospace',
-                fontSize: 11,
+                fontSize: 12,
                 color: entry.isError ? NexColors.error : cs.onSurface,
               ),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _SingboxLogBlock extends StatelessWidget {
-  final String content;
-  const _SingboxLogBlock({required this.content});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Divider(height: 16),
-        Text('sing-box log', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
-            letterSpacing: 0.8, color: cs.primary)),
-        const SizedBox(height: 6),
-        SelectableText(
-          content,
-          style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: cs.onSurface),
-        ),
-      ],
     );
   }
 }

@@ -1,0 +1,8 @@
+{
+  "source": "Existing YuNiCode developer-signature WOFF2 subset",
+  "source_sha256": "faab9cb38caa4ccb809a4f1c0e13d147f97fa90af67d61937b602860a7df2d9a",
+  "ttf_sha256": "f02a5f69de97e298196016c3e5b58199b91533d8bc3d482b69a69187d6151b1b",
+  "weight": 800,
+  "license_source": "https://github.com/googlefonts/unbounded/blob/f3ec43228a864a72487e41552e2140efab9884ea/OFL.txt",
+  "conversion": "FontTools 4.58.5: instantiate original wght=800; WOFF2 to static TTF"
+}

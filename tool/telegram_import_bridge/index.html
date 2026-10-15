@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; manifest-src 'none'">
+  <meta name="color-scheme" content="light dark">
+  <title>Добавить в HoneyProxyUtility</title>
+  <link rel="stylesheet" href="./bridge.css">
+  <script type="module" src="./bridge.mjs"></script>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <span class="wordmark">HoneyProxyUtility</span>
+      <nav id="language-switcher" class="languages" aria-label="Язык">
+        <button id="language-ru" type="button" lang="ru" aria-pressed="true">RU</button>
+        <button id="language-en" type="button" lang="en" aria-pressed="false">EN</button>
+      </nav>
+    </header>
+    <main class="card" aria-labelledby="heading">
+      <img class="shield" src="./honey-shield.svg" width="76" height="76" alt="" aria-hidden="true">
+      <p id="eyebrow" class="eyebrow">Импорт</p>
+      <h1 id="heading">Добавить в Honey</h1>
+      <p id="description" class="description">Откройте эту страницу по кнопке в Telegram-боте.</p>
+      <div id="ready-status" class="ready-status" hidden>
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="ready-label">Ссылка готова</span>
+      </div>
+      <div id="actions" class="actions" hidden>
+        <button id="open-app" type="button" class="button primary">Открыть в HoneyProxyUtility</button>
+        <button id="copy-source" type="button" class="button secondary">Скопировать ссылку</button>
+      </div>
+      <p id="feedback" class="feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+      <p id="help" class="help">В боте выберите «Добавить в HoneyProxyUtility».</p>
+      <noscript>
+        <p class="help">Включите JavaScript или скопируйте ссылку из бота и вставьте её на экране «Импорт» в приложении.</p>
+        <p class="help" lang="en">Enable JavaScript, or copy your link from the bot and paste it into the app's Import screen.</p>
+      </noscript>
+    </main>
+    <footer id="footer">Подписка добавляется после подтверждения в приложении.</footer>
+  </div>
+</body>
+</html>

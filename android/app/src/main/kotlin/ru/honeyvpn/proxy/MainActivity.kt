@@ -11,6 +11,7 @@ class MainActivity : FlutterActivity() {
 
     private var vpnPermissionCallback: ((Boolean) -> Unit)? = null
     private var nativeBindings: NativeBindings? = null
+    private var latencyBindings: LatencyProcessBindings? = null
 
     companion object {
         private const val VPN_PERMISSION_REQUEST = 1001
@@ -18,7 +19,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleDeepLinkIntent(intent)
+        if (savedInstanceState == null) handleDeepLinkIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -28,10 +29,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleDeepLinkIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent?.data ?: return
-        if (uri.scheme == "honeyvpn" && uri.host == "import") {
-            val url = uri.getQueryParameter("url") ?: return
-            NativeBindings.onDeepLink(url)
+        if (uri.scheme.equals("honeyvpn", ignoreCase = true)) {
+            // Dart validates the entire envelope; never extract/redecode its URL here.
+            NativeBindings.onDeepLink(uri.toString())
         }
     }
 
@@ -42,6 +44,8 @@ class MainActivity : FlutterActivity() {
             messenger = flutterEngine.dartExecutor.binaryMessenger,
             requestVpnPermission = ::requestVpnPermission,
         )
+        latencyBindings = LatencyProcessBindings(applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger)
     }
 
     private fun requestVpnPermission(callback: (Boolean) -> Unit) {
@@ -65,6 +69,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        latencyBindings?.destroy()
         nativeBindings?.destroy()
         super.onDestroy()
     }

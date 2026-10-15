@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#323237"/>
+      <stop offset="1" stop-color="#17171a"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0.18" y1="0" x2="0.82" y2="1">
+      <stop offset="0" stop-color="#edd4a0"/>
+      <stop offset="0.5" stop-color="#d0b079"/>
+      <stop offset="1" stop-color="#b78e50"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="244" height="244" rx="54" fill="url(#surface)"/>
+  <g id="icon-mark" data-standalone-scale=".94" transform="translate(17.3056 17.3056) scale(.8648)">
+    <path fill="url(#gold)" fill-rule="evenodd" d="M128 44C146 55 170 63 194 68C199 69 202 73 202 78V117C202 158 176 191 134 214C130 216 126 216 122 214C80 191 54 158 54 117V78C54 73 57 69 62 68C86 63 110 55 128 44ZM128 60C111 69 90 77 68 82V117C68 151 90 178 128 200C166 178 188 151 188 117V82C166 77 145 69 128 60Z"/>
+  </g>
+</svg>

@@ -1,0 +1,52 @@
+name: Quality checks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare and verify the effective Android cores
+        run: python3 -B scripts/prepare_android_cores.py --cache-dir build/android-core-cache --download
+      - name: Core integrity and Apple helper safeguards
+        run: python3 -B -m unittest discover -s test/scripts -v
+      - name: Telegram import page and URI privacy regressions
+        run: node --test tool/telegram_import_bridge/import_contract.test.mjs
+      - name: Verify packaged Android cores against the reviewed lock
+        run: python3 -B scripts/validate_android_cores.py
+      - name: Check tun2socks arguments and inherited FD lifecycle
+        shell: python
+        run: |
+          import subprocess, sys
+          sys.path.insert(0, 'scripts')
+          from core_manifest import load_manifest
+          core = load_manifest()['tun2socks']
+          subprocess.run([sys.executable, '-B', 'test/native/tun2socks_fd_check.py',
+                          'android/app/src/main/jniLibs/x86_64/libtun2socks.so',
+                          '--version', core['version'], '--revision', core['revision']], check=True)
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.7'
+          channel: stable
+          cache: true
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+      - name: Install the pinned VPN core for schema checks
+        run: |
+          python3 -B scripts/prepare_cli_core.py --platform linux-amd64-android-checker --output "$RUNNER_TEMP/honeyproxy-schema-core"
+          echo "SINGBOX_CHECK_BINARY=$RUNNER_TEMP/honeyproxy-schema-core/sing-box" >> "$GITHUB_ENV"
+      - name: Unit and widget regressions
+        env:
+          SINGBOX_CHECK_TARGET: android
+        run: flutter test --reporter expanded
+      - name: Validate release metadata and native libraries
+        run: python3 scripts/release_metadata.py
+      - name: Validate the Apple native foundation
+        run: python3 scripts/validate_apple_foundation.py
