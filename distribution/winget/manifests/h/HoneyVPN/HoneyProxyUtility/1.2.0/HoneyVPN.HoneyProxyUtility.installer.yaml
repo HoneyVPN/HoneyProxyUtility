@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+PackageIdentifier: HoneyVPN.HoneyProxyUtility
+PackageVersion: 1.2.0
+InstallerType: inno
+Scope: machine
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+Protocols:
+  - honeyvpn
+ProductCode: HoneyProxyUtility_is1
+ReleaseDate: 2026-10-15
+ElevationRequirement: elevatesSelf
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/HoneyVPN/HoneyProxyUtility/releases/download/v1.2.0/HoneyProxyUtility-v1.2.0-Windows-Setup.exe
+    InstallerSha256: 9A260761E8E8BDAF4CDCCFFFE82E0940ABA16916E8FB0CE7B5F200CDD01007B7
+ManifestType: installer
+ManifestVersion: 1.12.0
