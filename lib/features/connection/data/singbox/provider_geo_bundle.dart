@@ -25,7 +25,7 @@ class ProviderGeoBundle {
   final String scope, metadataDigest;
   final Map<String, List<Map<String, dynamic>>> groups;
 
-  String get digest => providerGeoHash(utf8.encode(jsonEncode(toJson())));
+  late final String digest = providerGeoHash(utf8.encode(jsonEncode(toJson())));
   String tag(String role) =>
       'pgeo-' +
       scope.substring(0, 16) +

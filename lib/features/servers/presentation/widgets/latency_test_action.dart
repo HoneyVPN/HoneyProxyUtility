@@ -13,8 +13,11 @@ class LatencyTestAction extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = ref.watch(stringsProvider);
     final progress = ref.watch(latencyTestProgressProvider);
-    final enabled =
-        ref.watch(serversNotifierProvider).value?.isNotEmpty == true;
+    final enabled = ref.watch(
+      serversNotifierProvider.select(
+        (servers) => servers.value?.isNotEmpty == true,
+      ),
+    );
     final desktop = MediaQuery.sizeOf(context).width >= 700;
     final colors = Theme.of(context).colorScheme;
     final running = progress.isRunning;
@@ -47,27 +50,28 @@ class LatencyTestAction extends ConsumerWidget {
           ),
           icon: ExcludeSemantics(
             child: running
-                ? SizedBox.square(
-                    dimension: 20,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        CircularProgressIndicator(
-                          value: progress.total > 0 && progress.completed > 0
-                              ? progress.completed / progress.total
-                              : null,
-                          strokeWidth: 1.5,
-                          color: colors.primary,
-                          backgroundColor: colors.onSurface.withValues(
-                            alpha: 0.08,
+                ? RepaintBoundary(
+                    child: SizedBox.square(
+                      dimension: 20,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Keep moving between results too; numeric progress
+                          // is exposed above through the live semantics value.
+                          CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: colors.primary,
+                            backgroundColor: colors.onSurface.withValues(
+                              alpha: 0.08,
+                            ),
                           ),
-                        ),
-                        Icon(
-                          CupertinoIcons.stop_fill,
-                          size: 7,
-                          color: colors.primary,
-                        ),
-                      ],
+                          Icon(
+                            CupertinoIcons.stop_fill,
+                            size: 7,
+                            color: colors.primary,
+                          ),
+                        ],
+                      ),
                     ),
                   )
                 : const Icon(CupertinoIcons.speedometer, size: 20),

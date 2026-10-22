@@ -29,7 +29,6 @@ import '../../../servers/presentation/widgets/server_connection_label.dart';
 import '../../../servers/presentation/widgets/latency_badge.dart';
 import '../../../servers/presentation/widgets/latency_test_action.dart';
 import '../../../servers/presentation/server_selection_groups.dart';
-import '../../../subscriptions/data/services/subscription_order.dart';
 import '../../../subscriptions/presentation/widgets/subscription_refresh_action.dart';
 import '../../../subscriptions/data/services/subscriptions_notifier.dart';
 import '../../../subscriptions/data/services/subscription_policy.dart';
@@ -52,7 +51,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  final Set<String> _collapsed = {};
+  final Set<String?> _collapsed = {};
   bool _updateDismissed = false;
 
   @override
@@ -258,20 +257,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   ),
                                 );
                               }
-                              final groups =
-                                  <String, List<ServerProfileModel>>{};
-                              for (final sv in list) {
-                                (groups[sv.subscriptionId] ??= []).add(sv);
-                              }
-                              final keys = orderedSubscriptionGroups(
-                                groups.keys,
-                                subs,
-                              );
+                              final groups = serverSelectionGroups(list, subs);
                               final items = <Widget>[];
-                              for (final key in keys) {
-                                final group = groups[key]!;
+                              for (final section in groups) {
+                                final key = section.subscriptionId;
+                                final group = section.servers;
                                 final isCollapsed = _collapsed.contains(key);
-                                final label = key.isEmpty
+                                final label = key == null
+                                    ? s.favoritesTitle
+                                    : key.isEmpty
                                     ? s.manualGroup
                                     : (subNames[key] ?? _hostFromUrl(key));
                                 items.add(
@@ -279,12 +273,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     color: Colors.transparent,
                                     clipBehavior: Clip.antiAlias,
                                     child: _GroupHeader(
+                                      key: ValueKey(
+                                        key == null
+                                            ? 'server-group-favorites'
+                                            : 'server-group-source-$key',
+                                      ),
                                       label: label,
                                       hasRefreshFailure: failedSubscriptionUrls
                                           .contains(key),
                                       geoWarning: geoWarnings[key],
                                       count: group.length,
-                                      isManual: key.isEmpty,
+                                      isManual: key?.isEmpty == true,
+                                      isFavorites: key == null,
                                       isCollapsed: isCollapsed,
                                       onToggle: () => setState(() {
                                         if (isCollapsed) {
@@ -293,14 +293,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           _collapsed.add(key);
                                         }
                                       }),
-                                      onDeleteGroup: () => _confirmDeleteGroup(
-                                        context,
-                                        ref,
-                                        label,
-                                        group,
-                                        key,
-                                        s,
-                                      ),
+                                      onDeleteGroup: key == null
+                                          ? null
+                                          : () => _confirmDeleteGroup(
+                                              context,
+                                              ref,
+                                              label,
+                                              list
+                                                  .where(
+                                                    (server) =>
+                                                        server.subscriptionId ==
+                                                        key,
+                                                  )
+                                                  .toList(),
+                                              key,
+                                              s,
+                                            ),
                                       deleteTooltip: s.deleteGroupTitle(label),
                                     ),
                                   ),
@@ -328,7 +336,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     );
                                   }
                                 }
-                                if (key.contains('sub.honeyvpn.ru') &&
+                                if (key?.contains('sub.honeyvpn.ru') == true &&
                                     subs.length == 1 &&
                                     !group.any((sv) => sv.protocol == 'hy2')) {
                                   items.add(
@@ -922,17 +930,20 @@ class _GroupHeader extends ConsumerWidget {
   final String? geoWarning;
   final int count;
   final bool isManual;
+  final bool isFavorites;
   final bool isCollapsed;
   final VoidCallback onToggle;
-  final VoidCallback onDeleteGroup;
+  final VoidCallback? onDeleteGroup;
   final String deleteTooltip;
 
   const _GroupHeader({
+    super.key,
     required this.label,
     required this.hasRefreshFailure,
     this.geoWarning,
     required this.count,
     required this.isManual,
+    this.isFavorites = false,
     required this.isCollapsed,
     required this.onToggle,
     required this.onDeleteGroup,
@@ -962,6 +973,10 @@ class _GroupHeader extends ConsumerWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (isFavorites) ...[
+                          Icon(Icons.star_rounded, size: 14, color: cs.primary),
+                          const SizedBox(width: 5),
+                        ],
                         Flexible(
                           child: Text(
                             label,
@@ -1008,24 +1023,25 @@ class _GroupHeader extends ConsumerWidget {
             ),
           ),
         ),
-        PopupMenuButton<bool>(
-          tooltip: isManual
-              ? (ru ? 'Действия с группой' : 'Group actions')
-              : (ru ? 'Действия с подпиской' : 'Subscription actions'),
-          icon: Icon(
-            Icons.more_horiz_rounded,
-            size: 16,
-            color: cs.onSurfaceVariant,
-          ),
-          onSelected: (_) => onDeleteGroup(),
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              height: MediaQuery.sizeOf(context).width >= 700 ? 34 : 44,
-              value: true,
-              child: Text(s.deleteButton, style: TextStyle(color: cs.error)),
+        if (onDeleteGroup != null)
+          PopupMenuButton<bool>(
+            tooltip: isManual
+                ? (ru ? 'Действия с группой' : 'Group actions')
+                : (ru ? 'Действия с подпиской' : 'Subscription actions'),
+            icon: Icon(
+              Icons.more_horiz_rounded,
+              size: 16,
+              color: cs.onSurfaceVariant,
             ),
-          ],
-        ),
+            onSelected: (_) => onDeleteGroup!(),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                height: MediaQuery.sizeOf(context).width >= 700 ? 34 : 44,
+                value: true,
+                child: Text(s.deleteButton, style: TextStyle(color: cs.error)),
+              ),
+            ],
+          ),
       ],
     );
   }

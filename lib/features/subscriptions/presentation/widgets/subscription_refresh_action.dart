@@ -47,12 +47,19 @@ class _State extends ConsumerState<SubscriptionRefreshAction> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(subscriptionsProvider).value;
+    final (busy, available) = ref.watch(
+      subscriptionsProvider.select((asyncState) {
+        final state = asyncState.value;
+        return (
+          _busy(state),
+          widget.subscriptionId == null
+              ? state?.subs.isNotEmpty == true
+              : state?.subs.any((sub) => sub.id == widget.subscriptionId) == true,
+        );
+      }),
+    );
     final strings = ref.watch(stringsProvider);
-    final running = _requested || _busy(state);
-    final available = widget.subscriptionId == null
-        ? state?.subs.isNotEmpty == true
-        : state?.subs.any((sub) => sub.id == widget.subscriptionId) == true;
+    final running = _requested || busy;
     return Semantics(
       liveRegion: running,
       value: running ? strings.refreshing : null,
@@ -116,12 +123,14 @@ class _RefreshIconState extends State<RefreshingSyncIcon>
   }
 
   @override
-  Widget build(BuildContext context) => RotationTransition(
-    turns: _turns,
-    child: Icon(
-      Icons.sync_rounded,
-      size: widget.size,
-      color: widget.running ? Theme.of(context).colorScheme.primary : null,
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: RotationTransition(
+      turns: _turns,
+      child: Icon(
+        Icons.sync_rounded,
+        size: widget.size,
+        color: widget.running ? Theme.of(context).colorScheme.primary : null,
+      ),
     ),
   );
 }

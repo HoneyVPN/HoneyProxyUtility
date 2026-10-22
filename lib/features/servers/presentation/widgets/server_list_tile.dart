@@ -82,9 +82,12 @@ class _ServerListTileState extends ConsumerState<ServerListTile> {
       fallbackName: server.host,
     );
     final name = country.displayName;
-    final pinging =
-        _pinging ||
-        ref.watch(latencyTestProgressProvider).activeIds.contains(server.id);
+    final batchPinging = ref.watch(
+      latencyTestProgressProvider.select(
+        (progress) => progress.activeIds.contains(server.id),
+      ),
+    );
+    final pinging = _pinging || batchPinging;
     return LayoutBuilder(
       builder: (context, constraints) {
         final desktop = MediaQuery.sizeOf(context).width >= 700;
@@ -157,10 +160,12 @@ class _ServerListTileState extends ConsumerState<ServerListTile> {
                   ],
                   if (server.protocol != 'awg')
                     pinging
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                        ? const RepaintBoundary(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
                           )
                         : server.latencyMs != null
                         ? LatencyBadge(ms: server.latencyMs!)

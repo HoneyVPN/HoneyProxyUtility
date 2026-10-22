@@ -166,7 +166,24 @@ void main() {
       expect(button.onPressed, isNull);
       expect(fixture.adapter.calls, 1);
       response.complete(_feedResponse());
+      // Let the real parsing isolate reply while advancing the fake transport
+      // timers. pumpAndSettle alone spins the fake clock without awaiting I/O.
+      final wait = Stopwatch()..start();
+      while (!fixture.container
+          .read(subscriptionsProvider)
+          .requireValue
+          .subs
+          .any((sub) => sub.url == _draft && sub.lastUpdated != null)) {
+        if (wait.elapsed > const Duration(seconds: 10)) {
+          fail('Subscription parsing and persistence did not complete');
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+        await tester.pump(const Duration(milliseconds: 10));
+      }
       await tester.pumpAndSettle();
+      expect(fixture.adapter.calls, 1);
       expect(find.byType(AlertDialog), findsNothing);
       expect(
         fixture.container

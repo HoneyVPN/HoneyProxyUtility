@@ -9,6 +9,8 @@
 #include "windows_session_path.h"
 
 namespace {
+constexpr UINT kWindowsLatencyReplyMessage = WM_APP + 0x54;
+
 const flutter::EncodableValue* TrayField(const flutter::EncodableMap& map,
                                        const char* key) {
   const auto field = map.find(flutter::EncodableValue(key));
@@ -183,6 +185,9 @@ bool FlutterWindow::OnCreate() {
             path != nullptr && IsPlainWindowsSessionPath(*path)));
       });
   latency_processes_ = std::make_unique<WindowsLatencyProcessManager>();
+  latency_worker_ = std::make_unique<WindowsLatencyWorker>([window = GetHandle()] {
+    PostMessage(window, kWindowsLatencyReplyMessage, 0, 0);
+  });
   latency_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "ru.honeyvpn.proxy/latency",
       &flutter::StandardMethodCodec::GetInstance());
@@ -191,7 +196,7 @@ bool FlutterWindow::OnCreate() {
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
         const auto* arguments = call.arguments()
             ? std::get_if<flutter::EncodableMap>(call.arguments()) : nullptr;
-        if (arguments == nullptr || latency_processes_ == nullptr) {
+        if (arguments == nullptr || latency_processes_ == nullptr || latency_worker_ == nullptr) {
           result->Error("invalid_probe", "Invalid latency probe request");
           return;
         }
@@ -202,13 +207,23 @@ bool FlutterWindow::OnCreate() {
               ? std::get_if<std::string>(&config->second) : nullptr;
           const auto* directory_value = directory != arguments->end()
               ? std::get_if<std::string>(&directory->second) : nullptr;
-          const uint64_t id = config_value && directory_value
-              ? latency_processes_->Start(*config_value, *directory_value) : 0;
-          if (id == 0) {
-            result->Error("probe_start_failed", "Latency probe could not start");
-          } else {
-            result->Success(flutter::EncodableValue(static_cast<int64_t>(id)));
+          if (!config_value || !directory_value) {
+            result->Error("invalid_probe", "Invalid latency probe request");
+            return;
           }
+          auto reply = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
+          auto id = std::make_shared<uint64_t>(0);
+          latency_worker_->Request(
+              [this, id, config = *config_value, directory = *directory_value] {
+                *id = latency_processes_->Start(config, directory);
+              },
+              [reply, id] {
+                if (*id == 0) {
+                  reply->Error("probe_start_failed", "Latency probe could not start");
+                } else {
+                  reply->Success(flutter::EncodableValue(static_cast<int64_t>(*id)));
+                }
+              });
           return;
         }
         const auto identifier = arguments->find(flutter::EncodableValue("id"));
@@ -222,20 +237,29 @@ bool FlutterWindow::OnCreate() {
           return;
         }
         if (call.method_name() == "status") {
-          const auto status = latency_processes_->Status(static_cast<uint64_t>(id));
-          if (!status.known) {
-            result->Error("unknown_probe", "Latency probe status is unavailable");
-          } else {
-            result->Success(flutter::EncodableMap{
-              {flutter::EncodableValue("exited"), flutter::EncodableValue(status.exited)},
+          auto reply = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
+          auto status = std::make_shared<WindowsLatencyStatus>();
+          latency_worker_->Request(
+              [this, id, status] { *status = latency_processes_->Status(static_cast<uint64_t>(id)); },
+              [reply, status] {
+                if (!status->known) {
+                  reply->Error("unknown_probe", "Latency probe status is unavailable");
+                  return;
+                }
+                reply->Success(flutter::EncodableMap{
+              {flutter::EncodableValue("exited"), flutter::EncodableValue(status->exited)},
               {flutter::EncodableValue("exitCode"),
-                  flutter::EncodableValue(static_cast<int64_t>(status.exit_code))},
-            });
-          }
+                  flutter::EncodableValue(static_cast<int64_t>(status->exit_code))},
+                });
+              });
           return;
         }
         if (call.method_name() == "stop") {
-          result->Success(flutter::EncodableValue(latency_processes_->Stop(static_cast<uint64_t>(id))));
+          auto reply = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
+          auto stopped = std::make_shared<bool>(false);
+          latency_worker_->Request(
+              [this, id, stopped] { *stopped = latency_processes_->Stop(static_cast<uint64_t>(id)); },
+              [reply, stopped] { reply->Success(flutter::EncodableValue(*stopped)); });
           return;
         }
         result->NotImplemented();
@@ -305,7 +329,10 @@ void FlutterWindow::OnDestroy() {
   if (service_client_) service_client_->Shutdown();
   service_channel_ = nullptr;
   service_client_ = nullptr;
+  if (latency_channel_) latency_channel_->SetMethodCallHandler(nullptr);
+  if (latency_worker_) latency_worker_->Shutdown();
   latency_channel_ = nullptr;
+  latency_worker_ = nullptr;
   latency_processes_ = nullptr;
   session_channel_ = nullptr;
   if (flutter_controller_) {
@@ -378,6 +405,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   if (tray && tray->HandleMessage(message, wparam, lparam)) return 0;
   if (message == kWindowsServiceReplyMessage) {
     if (service_client_) service_client_->DrainRepliesUI();
+    return 0;
+  }
+  if (message == kWindowsLatencyReplyMessage) {
+    if (latency_worker_) latency_worker_->DrainRepliesUI();
     return 0;
   }
   if (message == kWindowsDeepLinkMessage) {

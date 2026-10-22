@@ -152,6 +152,25 @@ class _Fixture {
   }
 }
 
+Future<void> _finishRefresh(WidgetTester tester, _Fixture fixture) async {
+  final wait = Stopwatch()..start();
+  while (fixture.container
+      .read(subscriptionsProvider)
+      .requireValue
+      .refreshing
+      .isNotEmpty) {
+    if (wait.elapsed > const Duration(seconds: 10)) {
+      fail('Automatic subscription refresh did not complete');
+    }
+    // Keep the automatic cadence under the fake clock, but allow the real
+    // parsing isolate to reply before asserting the automatic refresh result.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1)),
+    );
+    await tester.pump();
+  }
+}
+
 Future<_Fixture> _fixture({
   Map<String, Object>? storage = const {},
   List<int> draws = const [0],
@@ -399,6 +418,7 @@ void main() {
       for (var i = 0; i < 5; i++) {
         await tester.pump();
       }
+      await _finishRefresh(tester, fixture);
       expect(fixture.free.single.host, 'stored-10.example.test');
       expect(fixture.freeSub.lastUpdated, isNull);
       body = _freeBody;
@@ -406,6 +426,7 @@ void main() {
       for (var i = 0; i < 5; i++) {
         await tester.pump();
       }
+      await _finishRefresh(tester, fixture);
       expect(fixture.free.single.host, 'second.example.test');
       expect(fixture.freeSub.lastUpdated, isNotNull);
       await fixture.servers.delete(fixture.free.single.id);

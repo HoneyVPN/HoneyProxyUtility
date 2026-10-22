@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -59,6 +60,57 @@ class _GeoLease {
   final bundles = <String>{}, raw = <String>{}, indices = <String>{};
 }
 
+typedef _GeoCompileInput = ({
+  ProviderRoutingProfile profile,
+  String scope,
+  String metadataDigest,
+  Uint8List? geoSite,
+  Uint8List? geoIp,
+});
+
+typedef _CompiledGeo = ({
+  ProviderGeoBundle bundle,
+  Uint8List bytes,
+  String digest,
+});
+
+_CompiledGeo _compileGeo(_GeoCompileInput input) {
+  final bundle = const ProviderGeoCompiler().compile(
+    input.profile,
+    scope: input.scope,
+    metadataDigest: input.metadataDigest,
+    geoSite: input.geoSite,
+    geoIp: input.geoIp,
+  );
+  final bytes = utf8.encode(jsonEncode(bundle.toJson()));
+  return (bundle: bundle, bytes: bytes, digest: bundle.digest);
+}
+
+// Small index/scope hashes are cheaper than starting another isolate. DAT
+// files can be 32 MiB; hashing those synchronously stalls every UI animation.
+Future<String> _hashGeoBytes(List<int> bytes) async => bytes.length < 64 * 1024
+    ? providerGeoHash(bytes)
+    : compute(providerGeoHash, bytes, debugLabel: 'hash-provider-geo');
+
+ProviderGeoBundle _decodeGeoBundle(
+  ({Uint8List bytes, ProviderGeoReference reference, String expectedScope})
+  input,
+) {
+  if (providerGeoHash(input.bytes) != input.reference.bundleDigest) {
+    throw const ProviderGeoException(ProviderGeoIssue.cache);
+  }
+  final bundle = ProviderGeoBundle.fromJson(
+    jsonDecode(utf8.decode(input.bytes)) as Map<String, dynamic>,
+  );
+  if (bundle.scope != input.expectedScope ||
+      bundle.metadataDigest != input.reference.metadataDigest) {
+    throw const ProviderGeoException(ProviderGeoIssue.cache);
+  }
+  // Warm the immutable bundle's cached hash before it returns to UI consumers.
+  bundle.digest;
+  return bundle;
+}
+
 /// Downloader runs as the app user. The privileged Windows service receives
 /// bounded typed inline sets only; it never opens these cache paths or URLs.
 class ProviderGeoRuntime {
@@ -98,12 +150,17 @@ class ProviderGeoRuntime {
     // persistent CAS, including saves performed by a different notifier.
     await prefs.reload();
     final text = prefs.getString('nexproxy_subscriptions');
-    if (text == null ||
-        text.length > 8 * 1024 * 1024 ||
-        utf8.encode(text).length > 8 * 1024 * 1024) {
+    if (text == null || text.length > 8 * 1024 * 1024) {
       throw const ProviderGeoException(ProviderGeoIssue.cache);
     }
+    return compute(_parseRetention, text, debugLabel: 'retain-provider-geo');
+  }
+
+  static ProviderGeoRetention _parseRetention(String text) {
     try {
+      if (utf8.encode(text).length > 8 * 1024 * 1024) {
+        throw const ProviderGeoException(ProviderGeoIssue.cache);
+      }
       final rows = jsonDecode(text);
       if (rows is! List || rows.length > 4096) {
         throw const FormatException('providerGeo:references');
@@ -268,20 +325,24 @@ class ProviderGeoRuntime {
             )
           : null;
       _throwIfCancelled(cancelToken);
-      final bundle = const ProviderGeoCompiler().compile(
-        profile,
+      // DAT decoding, rule validation, sorting, JSON encoding and SHA256 all
+      // run away from the rendering isolate. The worker captures no runtime,
+      // HTTP client, cancellation token or cache lease.
+      final compiled = await compute(_compileGeo, (
+        profile: profile,
         scope: scope,
         metadataDigest: metadataHash,
         geoSite: site,
         geoIp: ip,
-      );
-      final bytes = utf8.encode(jsonEncode(bundle.toJson()));
+      ), debugLabel: 'compile-provider-geo');
+      _throwIfCancelled(cancelToken);
       await _locked(() async {
+        _throwIfCancelled(cancelToken);
         final dir = await _readyDirectory('bundles');
-        lease.bundles.add(bundle.digest);
+        lease.bundles.add(compiled.digest);
         await _writeImmutable(
-          File(dir.path + '/' + bundle.digest + '.json'),
-          bytes,
+          File(dir.path + '/' + compiled.digest + '.json'),
+          compiled.bytes,
         );
         await _collectLocked();
       });
@@ -289,11 +350,11 @@ class ProviderGeoRuntime {
       final result = ProviderGeoPrepared(
         ProviderGeoReference(
           scope: scope,
-          bundleDigest: bundle.digest,
+          bundleDigest: compiled.digest,
           metadataDigest: metadataHash,
           updatedAt: _now(),
         ),
-        bundle,
+        compiled.bundle,
         release: () => _releaseLease(lease),
       );
       transferred = true;
@@ -334,17 +395,11 @@ class ProviderGeoRuntime {
           ProviderGeoBundle.maximumInlineBytes + 4096,
         );
       });
-      if (providerGeoHash(bytes) != reference.bundleDigest) {
-        throw const ProviderGeoException(ProviderGeoIssue.cache);
-      }
-      final bundle = ProviderGeoBundle.fromJson(
-        jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>,
-      );
-      if (bundle.scope != expectedScope ||
-          bundle.metadataDigest != reference.metadataDigest) {
-        throw const ProviderGeoException(ProviderGeoIssue.cache);
-      }
-      return bundle;
+      return await compute(_decodeGeoBundle, (
+        bytes: bytes,
+        reference: reference,
+        expectedScope: expectedScope,
+      ), debugLabel: 'read-provider-geo');
     } on ProviderGeoException {
       rethrow;
     } catch (_) {
@@ -378,7 +433,7 @@ class ProviderGeoRuntime {
           File(raw.path + '/' + hash + '.dat'),
           maximumFileBytes,
         );
-        if (providerGeoHash(old!) != hash)
+        if (await _hashGeoBytes(old!) != hash)
           throw const FormatException('providerGeo:hash');
         lease.raw.add(hash);
       } catch (_) {
@@ -506,7 +561,7 @@ class ProviderGeoRuntime {
         throw const ProviderGeoException(ProviderGeoIssue.download);
       },
     );
-    final digest = providerGeoHash(result.$1);
+    final digest = await _hashGeoBytes(result.$1);
     await _locked(() async {
       _throwIfCancelled(cancelToken);
       lease.raw.add(digest);
@@ -589,7 +644,7 @@ class ProviderGeoRuntime {
     final name = RegExp(
       r'^([a-f0-9]{64})\.(dat|json)$',
     ).firstMatch(file.uri.pathSegments.last);
-    if (name == null || providerGeoHash(bytes) != name.group(1)) {
+    if (name == null || await _hashGeoBytes(bytes) != name.group(1)) {
       throw const ProviderGeoException(ProviderGeoIssue.cache);
     }
     final type = await FileSystemEntity.type(file.path, followLinks: false);
@@ -600,7 +655,7 @@ class ProviderGeoRuntime {
     if (type == FileSystemEntityType.file) {
       if (await file.length() == bytes.length) {
         final current = await _readBounded(file, bytes.length);
-        if (providerGeoHash(current) == name.group(1)) return;
+        if (await _hashGeoBytes(current) == name.group(1)) return;
       }
       // A fresh download/compiler has reconstructed the exact content-addressed
       // object. Replace only this corrupt regular file; keeping it would make

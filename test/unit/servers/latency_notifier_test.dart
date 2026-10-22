@@ -7,6 +7,7 @@ import 'package:honeyproxyutility/features/converter/domain/entities/parsed_prox
 import 'package:honeyproxyutility/features/servers/data/services/profile_latency_service.dart';
 import 'package:honeyproxyutility/features/servers/presentation/notifiers/servers_notifier.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 ParsedProxy _proxy(
   String identity, {
@@ -43,6 +44,18 @@ class _PendingService implements ProfileLatencyService {
   }
 }
 
+class _RecordingStore extends InMemorySharedPreferencesStore {
+  _RecordingStore(super.data) : super.withData();
+
+  final writes = <String>[];
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) {
+    writes.add(key);
+    return super.setValue(valueType, key, value);
+  }
+}
+
 Future<(ProviderContainer, ServersNotifier, _PendingService)> _fixture() async {
   SharedPreferences.setMockInitialValues({});
   final service = _PendingService();
@@ -65,6 +78,50 @@ Future<void> _until(bool Function() condition) async {
 }
 
 void main() {
+  test(
+    'ping samples stay in memory without rewriting the saved profiles',
+    () async {
+      final (container, notifier, service) = await _fixture();
+      await notifier.addFromProxies([_proxy('first'), _proxy('second')]);
+      final original = container.read(serversNotifierProvider).requireValue;
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('honeyvpn_servers');
+      final store = _RecordingStore(
+        await SharedPreferencesStorePlatform.instance.getAll(),
+      );
+      SharedPreferencesStorePlatform.instance = store;
+
+      final probe = notifier.testLatency(original.first);
+      await _until(() => service.pending.isNotEmpty);
+      service.pending.single.complete(123);
+      expect(await probe, 123);
+      await notifier.updateLatency(original.last.id, 234);
+      expect(
+        container
+            .read(serversNotifierProvider)
+            .requireValue
+            .map((s) => s.latencyMs),
+        [123, 234],
+      );
+      expect(store.writes, isEmpty);
+      expect(prefs.getString('honeyvpn_servers'), saved);
+
+      // A later durable user action still saves the latest selection and does
+      // not lose the samples already published by the serialized latency work.
+      await notifier.selectServer(original.last);
+      expect(store.writes, ['flutter.honeyvpn_servers']);
+      expect(
+        container.read(serversNotifierProvider).requireValue.last.isSelected,
+        isTrue,
+      );
+      final reloaded = ProviderContainer();
+      addTearDown(reloaded.dispose);
+      final loaded = await reloaded.read(serversNotifierProvider.future);
+      expect(loaded.last.isSelected, isTrue);
+      expect(loaded.map((s) => s.latencyMs), everyElement(isNull));
+    },
+  );
+
   test('batch progress joins repeat taps and bounds four workers', () async {
     final (container, notifier, service) = await _fixture();
     await notifier.addFromProxies(
@@ -152,8 +209,15 @@ void main() {
       ]);
       final fresh = container.read(serversNotifierProvider).requireValue.single;
       expect(fresh.id, old.id);
+      var publications = 0;
+      final listener = container.listen(
+        serversNotifierProvider,
+        (_, __) => publications++,
+      );
+      addTearDown(listener.close);
       service.pending.single.complete(321);
       expect(await probe, 321);
+      expect(publications, 0);
       expect(
         container.read(serversNotifierProvider).requireValue.single.latencyMs,
         null,

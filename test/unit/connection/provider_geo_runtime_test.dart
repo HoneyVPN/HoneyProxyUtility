@@ -160,6 +160,43 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    'large DAT worker hashes and compiles survive cache reuse and readback',
+    () async {
+      // An unknown protobuf field models an ordinary larger provider DAT while
+      // keeping the selected category small. It also crosses the hash offload
+      // threshold on download, immutable write and later cache verification.
+      final data = Uint8List.fromList([
+        ..._site('large.example.invalid'),
+        ..._message(18, Uint8List(128 * 1024)),
+      ]);
+      final fixture = await _fixture(
+        (_) async => ResponseBody.fromBytes(data, 200),
+      );
+      final metadata = _metadata();
+      final first = await fixture.runtime.prepare(
+        metadata,
+        subscriptionUrl: _subscriptionUrl,
+      );
+      fixture.retain(first, geoUrl: _geoUrl);
+      await first.release();
+      expect(await fixture.raw(providerGeoHash(data)).readAsBytes(), data);
+
+      final cached = await fixture.runtime.prepare(
+        metadata,
+        subscriptionUrl: _subscriptionUrl,
+      );
+      expect(fixture.adapter.requests, hasLength(1));
+      expect(cached.reference.bundleDigest, first.reference.bundleDigest);
+      final restored = await fixture.runtime.readBundle(
+        cached.reference,
+        expectedScope: cached.reference.scope,
+      );
+      expect(restored.toJson(), first.bundle.toJson());
+      await cached.release();
+    },
+  );
+
+  test(
     'verified ETag 304 closes its response and reuses the complete bundle',
     () async {
       final notModified = _OpenResponse(304);

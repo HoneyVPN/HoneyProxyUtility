@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import '../../../lib/features/converter/data/parsers/link_dispatcher.dart';
+import '../../../lib/features/converter/data/parsers/subscription_response_parser.dart';
 import '../../../lib/features/converter/domain/entities/parsed_proxy.dart';
 import '../../../lib/features/servers/data/models/server_profile_model.dart';
 import '../../../lib/features/servers/presentation/notifiers/servers_notifier.dart';
@@ -90,6 +91,30 @@ class _LatencyNotifier extends ServersNotifier {
   }
 }
 
+class _PausedResponseParser extends SubscriptionResponseParser {
+  final started = Completer<void>();
+  final resume = Completer<void>();
+
+  @override
+  Future<ParsedSubscriptionResponse> parse({
+    required int subscriptionId,
+    required String body,
+    Map<String, List<String>> headers = const {},
+    bool includeProxies = true,
+  }) async {
+    if (body.contains('#Paused')) {
+      started.complete();
+      await resume.future;
+    }
+    return super.parse(
+      subscriptionId: subscriptionId,
+      body: body,
+      headers: headers,
+      includeProxies: includeProxies,
+    );
+  }
+}
+
 ResponseBody response(
   String text, {
   Map<String, List<String>> headers = const {},
@@ -98,12 +123,17 @@ ResponseBody response(
 Future<(ProviderContainer, _Adapter)> fixture({
   Map<String, Object> storage = const {},
   Future<ResponseBody> Function(RequestOptions)? respond,
+  SubscriptionResponseParser? parser,
 }) async {
   SharedPreferences.setMockInitialValues(storage);
   final adapter = _Adapter(respond ?? (_) async => response(freeBody));
   final dio = Dio()..httpClientAdapter = adapter;
   final container = ProviderContainer(
-    overrides: [subscriptionDioProvider.overrideWithValue(dio)],
+    overrides: [
+      subscriptionDioProvider.overrideWithValue(dio),
+      if (parser != null)
+        subscriptionResponseParserProvider.overrideWithValue(parser),
+    ],
   );
   addTearDown(() {
     container.dispose();
@@ -595,6 +625,54 @@ void main() {
       expect(
         container.read(serversNotifierProvider).requireValue,
         hasLength(1),
+      );
+      expect(
+        container.read(subscriptionsProvider).requireValue.refreshing,
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'deleted subscription cannot publish a response still being parsed',
+    () async {
+      final parser = _PausedResponseParser();
+      final (container, _) = await fixture(
+        parser: parser,
+        respond: (options) async => response(
+          options.uri.toString() == customUrl
+              ? 'vless://new@same.example.test:443?security=tls#Paused'
+              : freeBody,
+        ),
+      );
+      final notifier = container.read(subscriptionsProvider.notifier);
+      await notifier.importProxies(customUrl, [proxy('custom')]);
+      final sub = container.read(subscriptionsProvider).requireValue.subs.last;
+      final pending = notifier.refresh(sub.id);
+      await parser.started.future;
+      expect(
+        container.read(subscriptionsProvider).requireValue.refreshing,
+        contains(sub.id),
+      );
+
+      await notifier.delete(sub.id);
+      parser.resume.complete();
+      await pending;
+
+      expect(
+        container
+            .read(subscriptionsProvider)
+            .requireValue
+            .subs
+            .where((s) => s.id == sub.id),
+        isEmpty,
+      );
+      expect(
+        container
+            .read(serversNotifierProvider)
+            .requireValue
+            .where((s) => s.subscriptionId == customUrl),
+        isEmpty,
       );
       expect(
         container.read(subscriptionsProvider).requireValue.refreshing,

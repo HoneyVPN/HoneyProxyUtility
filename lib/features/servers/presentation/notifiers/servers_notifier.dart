@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,6 +16,28 @@ import '../../../subscriptions/domain/entities/free_server_snapshot.dart';
 
 const _serversKey = 'honeyvpn_servers';
 const _freeRemovedKey = 'honeyvpn_free_server_removed_v1';
+
+bool _needsProfileWorker(
+  List<ServerProfileModel> profiles, {
+  int incomingCount = 0,
+}) {
+  if (profiles.length + incomingCount >= 50) return true;
+  var characters = 0;
+  for (final profile in profiles) {
+    characters += profile.configJson.length;
+    if (characters >= 64 * 1024) return true;
+  }
+  return false;
+}
+
+typedef _SubscriptionSnapshotInput = ({
+  List<ServerProfileModel> current,
+  List<ParsedProxy> proxies,
+  String source,
+});
+
+List<ParsedProxy> _distinctSubscriptionProxies(List<ParsedProxy> proxies) =>
+    subscriptionProxies('', proxies);
 
 final builtInFreeRandomProvider = Provider<Random>((ref) => Random());
 
@@ -81,18 +104,21 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     FutureOr<List<ServerProfileModel>> Function(List<ServerProfileModel>)
     transform, {
     Future<void> Function()? afterSave,
+    bool persist = true,
   }) {
     final operation = _pendingMutation.then((_) async {
       await future;
       final before = state.requireValue;
       final updated = await transform(before);
-      await _save(updated);
+      if (!persist && identical(updated, before)) return before;
+      // Ping samples are session state. Serializing and rewriting every proxy
+      // configuration for each sample stalls large batches on the UI isolate.
+      if (persist) await _save(updated);
       await afterSave?.call();
       if (ref.mounted) {
         final previous = {for (final profile in before) profile.id: profile};
-        _profileGenerations.removeWhere(
-          (id, _) => !updated.any((profile) => profile.id == id),
-        );
+        final updatedIds = updated.map((profile) => profile.id).toSet();
+        _profileGenerations.removeWhere((id, _) => !updatedIds.contains(id));
         for (final profile in updated) {
           final old = previous[profile.id];
           if (old == null ||
@@ -264,13 +290,17 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
   }
 
   Future<void> _save(List<ServerProfileModel> models) async {
+    final encoded = _needsProfileWorker(models)
+        ? await compute(
+            ServerProfileModel.listToJson,
+            models,
+            debugLabel: 'save-server-profiles',
+          )
+        : ServerProfileModel.listToJson(models);
     final prefs = await SharedPreferences.getInstance();
     final previous = prefs.getString(_serversKey);
     try {
-      if (!await prefs.setString(
-        _serversKey,
-        ServerProfileModel.listToJson(models),
-      )) {
+      if (!await prefs.setString(_serversKey, encoded)) {
         throw StateError('Failed to save server profiles');
       }
     } catch (error, stack) {
@@ -410,6 +440,7 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
       (current) => current
           .map((s) => s.id == id ? s.copyWith(latencyMs: ms) : s)
           .toList(),
+      persist: false,
     );
   }
 
@@ -427,18 +458,21 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
                 .read(profileLatencyServiceProvider)
                 .measure(_dispatcher.dispatch(raw), cancellation: cancellation);
       if (!cancellation.isCancelled && ref.mounted) {
-        await _update(
-          (current) => current.map((existing) {
-            // Refreshes can delete/reuse IDs or replace a node while its probe is
-            // in flight. Never attach an old result to a different profile.
-            return existing.id == server.id &&
-                    _profileGenerations[server.id] == generation &&
-                    existing.configJson == server.configJson &&
-                    existing.subscriptionId == server.subscriptionId
-                ? existing.copyWith(latencyMs: ms)
-                : existing;
-          }).toList(),
-        );
+        await _update((current) {
+          // Refreshes can delete/reuse IDs or replace a node while its probe is
+          // in flight. Never attach an old result to a different profile.
+          if (_profileGenerations[server.id] != generation) return current;
+          final index = current.indexWhere(
+            (existing) =>
+                existing.id == server.id &&
+                existing.configJson == server.configJson &&
+                existing.subscriptionId == server.subscriptionId,
+          );
+          if (index < 0) return current;
+          final updated = [...current];
+          updated[index] = current[index].copyWith(latencyMs: ms);
+          return updated;
+        }, persist: false);
       }
       return ms;
     } catch (_) {
@@ -547,49 +581,45 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
     }
     var applied = false;
     final updated = await _update(
-      (current) {
-        final previous = current
-            .where((s) => s.subscriptionId == source)
-            .toList();
+      (current) async {
         if (source == builtInSubscriptionUrl &&
             ((freeSnapshot != null && freeSnapshot.revision != _freeRevision) ||
                 (_freeRemoved && !addBuiltInIfMissing) ||
-                (addBuiltInIfMissing && previous.isNotEmpty))) {
+                (addBuiltInIfMissing &&
+                    current.any((s) => s.subscriptionId == source)))) {
           return current;
         }
-        final byIdentity = <String, ServerProfileModel>{};
-        // Prefer the selected/favorite copy when repairing historical duplicates.
-        for (final s in previous.reversed) {
-          final identity = _profileIdentity(s);
-          if (identity == null) continue;
-          final old = byIdentity[identity];
-          if (old == null ||
-              s.isSelected ||
-              (!old.isSelected && s.isFavorite)) {
-            byIdentity[identity] = s;
-          }
-        }
-        final effective = subscriptionProxies(
-          source,
-          proxies,
-          random: source == builtInSubscriptionUrl
-              ? ref.read(builtInFreeRandomProvider)
-              : null,
+        final useWorker = _needsProfileWorker(
+          current,
+          incomingCount: proxies.length,
         );
-        final kept = current.where((s) => s.subscriptionId != source).toList();
-        var nextId = _nextId(current);
-        final replacements = effective.map((p) {
-          final old = byIdentity[proxyIdentity(p)];
-          return _modelFromProxy(p, old?.id ?? nextId++, source, previous: old);
-        }).toList();
-        // When a provider removes the active node, keep selection in that group.
-        if (previous.any((s) => s.isSelected) &&
-            !replacements.any((s) => s.isSelected) &&
-            replacements.isNotEmpty) {
-          replacements[0] = replacements[0].copyWith(isSelected: true);
+        var effective = proxies;
+        if (source == builtInSubscriptionUrl) {
+          final candidates = useWorker
+              ? await compute(
+                  _distinctSubscriptionProxies,
+                  proxies,
+                  debugLabel: 'deduplicate-free-profiles',
+                )
+              : _distinctSubscriptionProxies(proxies);
+          // Keep the injected random source and its draw in the serialized
+          // mutation; only pure profile data crosses the worker boundary.
+          effective = [
+            candidates[ref
+                .read(builtInFreeRandomProvider)
+                .nextInt(candidates.length)],
+          ];
         }
+        final input = (current: current, proxies: effective, source: source);
+        final profiles = useWorker
+            ? await compute(
+                _buildSubscriptionSnapshot,
+                input,
+                debugLabel: 'apply-subscription',
+              )
+            : _buildSubscriptionSnapshot(input);
         applied = true;
-        return [...kept, ...replacements];
+        return profiles;
       },
       afterSave: () async {
         if (!applied || source != builtInSubscriptionUrl) return;
@@ -603,6 +633,44 @@ class ServersNotifier extends AsyncNotifier<List<ServerProfileModel>> {
       count: updated.where((s) => s.subscriptionId == source).length,
       applied: applied,
     );
+  }
+
+  /// Identity parsing, URI construction and model allocation are CPU work. The
+  /// caller holds the mutation queue while a large snapshot runs in compute.
+  static List<ServerProfileModel> _buildSubscriptionSnapshot(
+    _SubscriptionSnapshotInput input,
+  ) {
+    final current = input.current;
+    final source = input.source;
+    final previous = current.where((s) => s.subscriptionId == source).toList();
+    final byIdentity = <String, ServerProfileModel>{};
+    // Prefer the selected/favorite copy when repairing historical duplicates.
+    for (final profile in previous.reversed) {
+      final identity = _profileIdentity(profile);
+      if (identity == null) continue;
+      final old = byIdentity[identity];
+      if (old == null ||
+          profile.isSelected ||
+          (!old.isSelected && profile.isFavorite)) {
+        byIdentity[identity] = profile;
+      }
+    }
+    final effective = source == builtInSubscriptionUrl
+        ? input.proxies
+        : subscriptionProxies(source, input.proxies);
+    final kept = current.where((s) => s.subscriptionId != source).toList();
+    var nextId = _nextId(current);
+    final replacements = effective.map((proxy) {
+      final old = byIdentity[proxyIdentity(proxy)];
+      return _modelFromProxy(proxy, old?.id ?? nextId++, source, previous: old);
+    }).toList();
+    // When a provider removes the active node, keep selection in that group.
+    if (previous.any((s) => s.isSelected) &&
+        !replacements.any((s) => s.isSelected) &&
+        replacements.isNotEmpty) {
+      replacements[0] = replacements[0].copyWith(isSelected: true);
+    }
+    return [...kept, ...replacements];
   }
 
   Future<void> deleteBySubscription(String subscriptionId) async {

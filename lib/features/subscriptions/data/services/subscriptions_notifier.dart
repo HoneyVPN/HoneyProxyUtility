@@ -2,20 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/subscription_model.dart';
 import '../../../converter/data/parsers/base_parser.dart';
-import '../../../converter/data/parsers/subscription_parser.dart';
+import '../../../converter/data/parsers/subscription_response_parser.dart';
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../servers/presentation/notifiers/servers_notifier.dart';
 import 'subscription_policy.dart';
 import 'subscription_order.dart';
 import '../../domain/entities/free_server_snapshot.dart';
-import '../../../converter/data/parsers/provider_routing_parser.dart';
 import '../../domain/entities/provider_routing_metadata.dart';
 import '../../domain/entities/provider_geo_state.dart';
 import '../../../connection/data/singbox/provider_geo_runtime.dart';
@@ -36,6 +35,10 @@ final subscriptionDioProvider = Provider<Dio>((ref) {
   ref.onDispose(() => dio.close(force: true));
   return dio;
 });
+
+final subscriptionResponseParserProvider = Provider<SubscriptionResponseParser>(
+  (ref) => const SubscriptionResponseParser(),
+);
 
 enum SubscriptionFailure {
   unsupportedConfiguration,
@@ -177,13 +180,19 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
   }
 
   Future<void> _save(List<SubscriptionModel> list) async {
+    final encoded =
+        list.length >= 16 ||
+            list.any((subscription) => subscription.providerRouting != null)
+        ? await compute(
+            SubscriptionModel.listToJson,
+            list,
+            debugLabel: 'save-subscriptions',
+          )
+        : SubscriptionModel.listToJson(list);
     final prefs = await SharedPreferences.getInstance();
     final previous = prefs.getString(_subsKey);
     try {
-      if (!await prefs.setString(
-        _subsKey,
-        SubscriptionModel.listToJson(list),
-      )) {
+      if (!await prefs.setString(_subsKey, encoded)) {
         throw StateError('Failed to save subscriptions');
       }
     } catch (error, stack) {
@@ -498,31 +507,21 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
             options: Options(responseType: ResponseType.plain),
           );
       if (token.isCancelled || !current()) return;
-      ProviderRoutingEnvelope? envelope;
-      var geoParseFailed = false;
-      var routingDeclared = false;
-      try {
-        envelope = const ProviderRoutingParser().parse(
-          subscriptionId: sub.id,
-          body: resp.data ?? '',
-          headers: resp.headers.map,
-        );
-      } on ProviderRoutingParseException catch (error) {
-        geoParseFailed = true;
-        routingDeclared =
-            error.declarationPresent ||
-            _declaredRouting(resp.data ?? '', resp.headers.map);
-      }
-      final proxies = const SubscriptionParser().parse(
-        envelope?.proxyBody ?? resp.data ?? '',
-      );
-      if (proxies.isEmpty)
-        throw const ParseException('Subscription has no valid profiles');
+      final parsed = await ref
+          .read(subscriptionResponseParserProvider)
+          .parse(
+            subscriptionId: sub.id,
+            body: resp.data ?? '',
+            headers: resp.headers.map,
+          );
+      // Parsing now yields to another isolate. Deletion/re-import may retire
+      // this response while it runs, before any server replacement is allowed.
+      if (token.isCancelled || !current()) return;
       final replacement = await ref
           .read(serversNotifierProvider.notifier)
           .replaceSubscriptionSnapshot(
             sub.url,
-            proxies,
+            parsed.proxies,
             freeSnapshot: freeSnapshot,
             addBuiltInIfMissing: restoreBuiltIn,
           );
@@ -562,9 +561,9 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
           sub,
           generation,
           token,
-          envelope: envelope,
-          parseFailed: geoParseFailed,
-          routingDeclared: routingDeclared,
+          envelope: parsed.envelope,
+          parseFailed: parsed.routingParseFailed,
+          routingDeclared: parsed.routingDeclared,
           freeLease: geoLease,
           forceGeo: _forceGeoRefreshes.contains(key),
         );
@@ -635,28 +634,22 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
     final token = CancelToken();
     final key = (sub.id, generation);
     _cancellations[key] = token;
-    ProviderRoutingEnvelope? envelope;
-    var parseFailed = false;
-    var routingDeclared = false;
     try {
-      envelope = const ProviderRoutingParser().parse(
-        subscriptionId: sub.id,
-        body: body,
-        headers: headers,
-      );
-    } on ProviderRoutingParseException catch (error) {
-      parseFailed = true;
-      routingDeclared =
-          error.declarationPresent || _declaredRouting(body, headers);
-    }
-    try {
+      final parsed = await ref
+          .read(subscriptionResponseParserProvider)
+          .parse(
+            subscriptionId: sub.id,
+            body: body,
+            headers: headers,
+            includeProxies: false,
+          );
       await _publishProviderRouting(
         sub,
         generation,
         token,
-        envelope: envelope,
-        parseFailed: parseFailed,
-        routingDeclared: routingDeclared,
+        envelope: parsed.envelope,
+        parseFailed: parsed.routingParseFailed,
+        routingDeclared: parsed.routingDeclared,
         freeLease: lease,
         responseHeaders: headers,
         forceGeo: true,
@@ -842,18 +835,6 @@ class SubscriptionsNotifier extends AsyncNotifier<SubscriptionsState> {
         ? rows.single.value.single
         : null;
   }
-
-  static bool _declaredRouting(
-    String body,
-    Map<String, List<String>> headers,
-  ) =>
-      headers.keys.any((name) => name.toLowerCase() == 'routing') ||
-      body
-          .substring(
-            0,
-            body.length.clamp(0, ProviderRoutingParser.maximumBodyBytes),
-          )
-          .contains('happ://routing/');
 
   static int? _providerInterval(Map<String, List<String>> headers) {
     final value = int.tryParse(

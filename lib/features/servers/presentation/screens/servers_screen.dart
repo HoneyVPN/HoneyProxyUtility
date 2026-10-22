@@ -8,7 +8,7 @@ import '../notifiers/servers_notifier.dart';
 import '../widgets/server_list_tile.dart';
 import '../widgets/latency_test_action.dart';
 import '../../../../app/l10n/strings.dart';
-import '../../../subscriptions/data/services/subscription_order.dart';
+import '../server_selection_groups.dart';
 import '../../../subscriptions/data/services/subscription_policy.dart';
 import '../../../connection/domain/entities/connection_state.dart';
 import '../../../connection/presentation/notifiers/connection_notifier.dart';
@@ -22,7 +22,7 @@ class ServersScreen extends ConsumerStatefulWidget {
 }
 
 class _ServersScreenState extends ConsumerState<ServersScreen> {
-  final Set<String> _collapsed = {};
+  final Set<String?> _collapsed = {};
 
   @override
   Widget build(BuildContext context) {
@@ -61,21 +61,18 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
               s.url: s.name.isNotEmpty ? s.name : _hostFromUrl(s.url),
           };
 
-          final groups = <String, List<ServerProfileModel>>{};
-          for (final s in list) {
-            (groups[s.subscriptionId] ??= []).add(s);
-          }
-
-          final keys = orderedSubscriptionGroups(groups.keys, subs);
+          final groups = serverSelectionGroups(list, subs);
 
           return ListView.builder(
             padding: const EdgeInsets.only(top: 8, bottom: 80),
-            itemCount: keys.length,
+            itemCount: groups.length,
             itemBuilder: (ctx, gi) {
-              final key = keys[gi];
-              final group = groups[key]!;
+              final key = groups[gi].subscriptionId;
+              final group = groups[gi].servers;
               final isCollapsed = _collapsed.contains(key);
-              final label = key.isEmpty
+              final label = key == null
+                  ? strings.favoritesTitle
+                  : key.isEmpty
                   ? strings.manualGroup
                   : (subNames[key] ?? _hostFromUrl(key));
 
@@ -83,9 +80,15 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _GroupHeader(
+                    key: ValueKey(
+                      key == null
+                          ? 'server-group-favorites'
+                          : 'server-group-source-$key',
+                    ),
                     label: label,
                     count: group.length,
-                    isManual: key.isEmpty,
+                    isManual: key?.isEmpty == true,
+                    isFavorites: key == null,
                     isCollapsed: isCollapsed,
                     onToggle: () => setState(() {
                       if (isCollapsed)
@@ -93,12 +96,22 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                       else
                         _collapsed.add(key);
                     }),
-                    onDeleteGroup: () =>
-                        _confirmDeleteGroup(context, ref, label, group, key),
+                    onDeleteGroup: key == null
+                        ? null
+                        : () => _confirmDeleteGroup(
+                            context,
+                            ref,
+                            label,
+                            list
+                                .where((server) => server.subscriptionId == key)
+                                .toList(),
+                            key,
+                          ),
                   ),
                   if (!isCollapsed)
                     ...group.map(
                       (s) => ServerListTile(
+                        key: ValueKey(s.id),
                         server: s,
                         isSelected: s.id == selected?.id,
                         onTap: () => ref
@@ -108,7 +121,7 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                         onTapDetail: () => ctx.push('/servers/${s.id}'),
                       ),
                     ),
-                  if (gi < keys.length - 1)
+                  if (gi < groups.length - 1)
                     Divider(
                       height: 1,
                       color: Theme.of(context).colorScheme.outlineVariant,
@@ -277,14 +290,17 @@ class _GroupHeader extends StatelessWidget {
   final String label;
   final int count;
   final bool isManual;
+  final bool isFavorites;
   final bool isCollapsed;
   final VoidCallback onToggle;
-  final VoidCallback onDeleteGroup;
+  final VoidCallback? onDeleteGroup;
 
   const _GroupHeader({
+    super.key,
     required this.label,
     required this.count,
     required this.isManual,
+    this.isFavorites = false,
     required this.isCollapsed,
     required this.onToggle,
     required this.onDeleteGroup,
@@ -299,14 +315,17 @@ class _GroupHeader extends StatelessWidget {
         padding: const EdgeInsets.only(left: 16, right: 4, top: 8, bottom: 8),
         child: Row(
           children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isManual ? cs.outline : NexPalette.accent,
+            if (isFavorites)
+              Icon(Icons.star_rounded, size: 16, color: cs.primary)
+            else
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isManual ? cs.outline : NexPalette.accent,
+                ),
               ),
-            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -339,18 +358,19 @@ class _GroupHeader extends StatelessWidget {
               size: 18,
               color: cs.onSurfaceVariant,
             ),
-            InkWell(
-              onTap: onDeleteGroup,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(
-                  Icons.delete_sweep_outlined,
-                  size: 18,
-                  color: cs.error.withValues(alpha: 0.6),
+            if (onDeleteGroup != null)
+              InkWell(
+                onTap: onDeleteGroup,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    Icons.delete_sweep_outlined,
+                    size: 18,
+                    color: cs.error.withValues(alpha: 0.6),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),

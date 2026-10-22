@@ -12,6 +12,7 @@
 
 #include "win32_window.h"
 #include "windows_latency_process.h"
+#include "windows_latency_worker.h"
 #include "windows_service_client.h"
 #include "windows_deeplink.h"
 #include "windows_tray.h"
@@ -53,6 +54,7 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> session_channel_;
   std::unique_ptr<WindowsLatencyProcessManager> latency_processes_;
+  std::unique_ptr<WindowsLatencyWorker> latency_worker_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> latency_channel_;
   std::unique_ptr<WindowsServiceClient> service_client_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> service_channel_;
