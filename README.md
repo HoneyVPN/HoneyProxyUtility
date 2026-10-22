@@ -61,7 +61,7 @@ Clash/sing-box конфигураций пока не заявляется.
 
 <p align="left">
   <a href="https://honeyvpn.ru/HoneyProxyUtility.apk">
-    <img src="https://img.shields.io/badge/скачать_APK-v1.2.0-brightgreen?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/скачать_APK-v1.2.1-brightgreen?style=for-the-badge" />
   </a>
     <img src="https://img.shields.io/badge/Android-7.0%2B-green?style=for-the-badge&logo=android" />
   <img src="https://img.shields.io/badge/лицензия-GPL--3.0-blue?style=for-the-badge" />
@@ -83,11 +83,11 @@ Clash/sing-box конфигураций пока не заявляется.
 
 Официальные сборки для Android и Windows — на странице
 [Releases](https://github.com/HoneyVPN/HoneyProxyUtility/releases/latest).
-Для версии 1.2.0 доступны:
+Для версии 1.2.1 доступны:
 
-- [Android 7.0+ — universal APK](https://github.com/HoneyVPN/HoneyProxyUtility/releases/download/v1.2.0/HoneyProxyUtility-v1.2.0-universal.apk).
-- [Windows x64 — установщик](https://github.com/HoneyVPN/HoneyProxyUtility/releases/download/v1.2.0/HoneyProxyUtility-v1.2.0-Windows-Setup.exe).
-- [SHA-256 файлов](https://github.com/HoneyVPN/HoneyProxyUtility/releases/download/v1.2.0/SHA256SUMS.txt).
+- [Android 7.0+ — universal APK](https://github.com/HoneyVPN/HoneyProxyUtility/releases/download/v1.2.1/HoneyProxyUtility-v1.2.1-universal.apk).
+- [Windows x64 — установщик](https://github.com/HoneyVPN/HoneyProxyUtility/releases/download/v1.2.1/HoneyProxyUtility-v1.2.1-Windows-Setup.exe).
+- [SHA-256 файлов](https://github.com/HoneyVPN/HoneyProxyUtility/releases/download/v1.2.1/SHA256SUMS.txt).
 
 Android можно добавить в [Obtainium](https://github.com/ImranR98/Obtainium),
 чтобы получать обновления APK непосредственно из этого репозитория:
@@ -96,14 +96,14 @@ Android можно добавить в [Obtainium](https://github.com/ImranR98/O
 Obtainium загружает тот же APK с подписью HoneyVPN; это ссылка на источник
 обновлений, а не подтверждение модерации в магазине.
 
-Windows-установщик 1.2.0 пока не имеет цифровой подписи Authenticode.
+Windows-установщик 1.2.1 пока не имеет цифровой подписи Authenticode.
 Ограничения совместимости и незавершённые проверки указаны в описании релиза.
 
 **English:** Download the official Android APK or Windows x64 installer from
 [GitHub Releases](https://github.com/HoneyVPN/HoneyProxyUtility/releases/latest).
 Verify downloads against the published SHA-256 checksums. Android users can
 add this GitHub repository to Obtainium using the link above to receive
-developer-signed APK updates. The Windows 1.2.0 installer is not yet
+developer-signed APK updates. The Windows 1.2.1 installer is not yet
 Authenticode-signed; see the release notes for current qualifications.
 
 ## Сборка
@@ -130,14 +130,14 @@ keyAlias=upload
 storeFile=../upload-keystore.jks
 ```
 
-Текущая версия: **1.2.0, сборка 2129** для Android и Windows.
+Текущая версия: **1.2.1, сборка 2130** для Android и Windows.
 Android требует **Android 7.0 или новее**. Подключение проверено на TECNO с
 Android 14; совместимость со всеми версиями Android этим не подтверждается.
 Изолированная проверка обновления Android с публичной 1.1.21 ещё не завершена.
 Сборка проверяется на **Flutter 3.41.7 / Dart 3.11.5**. Поддерживаемые Android ABI:
 `armeabi-v7a`, `arm64-v8a` и `x86_64`. Для прямой раздачи собирается один
 universal APK; сборка со `--split-per-abi` отклоняется. Версия Android-кода
-общая для трёх ABI: `10000 + build`, то есть **12129** для этой сборки.
+общая для трёх ABI: `10000 + build`, то есть **12130** для этой сборки.
 Файлы подписи и их резервные копии не должны попадать в Git.
 
 ## Проверки и выпуск
