@@ -92,6 +92,11 @@ class _RefreshIconState extends State<RefreshingSyncIcon>
     vsync: this,
     duration: const Duration(milliseconds: 1100),
   );
+  // Follow the direction of the sync icon's arrowheads.
+  late final _counterclockwiseTurns = Tween<double>(
+    begin: 0,
+    end: -1,
+  ).animate(_turns);
   void _sync() {
     final motion = MediaQuery.maybeOf(context);
     // A screen reader also enables accessibleNavigation on Flutter Web.
@@ -125,7 +130,7 @@ class _RefreshIconState extends State<RefreshingSyncIcon>
   @override
   Widget build(BuildContext context) => RepaintBoundary(
     child: RotationTransition(
-      turns: _turns,
+      turns: _counterclockwiseTurns,
       child: Icon(
         Icons.sync_rounded,
         size: widget.size,

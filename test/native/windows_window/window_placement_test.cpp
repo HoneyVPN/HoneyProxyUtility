@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cwchar>
 #include <iostream>
 #include <limits>
 
@@ -61,6 +62,9 @@ void CheckGeometry() {
 
 #ifdef _WIN32
 BOOL CALLBACK CheckMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM count) {
+  Check(AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(),
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != FALSE,
+        "Real monitor queries must retain exact PerMonitorV2 awareness");
   MONITORINFO info{};
   info.cbSize = sizeof(info);
   Check(GetMonitorInfoW(monitor, &info) != FALSE, "Real monitor work-area query");
@@ -84,21 +88,52 @@ BOOL CALLBACK CheckMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM count) {
                       info.rcMonitor.top + (info.rcMonitor.bottom - info.rcMonitor.top) / 2};
   Check(MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST) == monitor,
         "Virtual-screen coordinates select the actual monitor");
+  std::cout << "MONITOR dpi=" << dpi << " work=" << info.rcWork.left << ","
+            << info.rcWork.top << "," << info.rcWork.right << ","
+            << info.rcWork.bottom << " panel=" << bounds.left << ","
+            << bounds.top << "," << bounds.right << "," << bounds.bottom
+            << std::endl;
   ++*reinterpret_cast<int*>(count);
   return TRUE;
 }
 
 void CheckWindowsQueries() {
-  const BOOL configured = SetProcessDpiAwarenessContext(
-      DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-  const DWORD configure_error = configured ? ERROR_SUCCESS : GetLastError();
-  // Windows rejects changing awareness after the manifest has already set it.
-  // Accept only that exact context; PerMonitorV1 must not satisfy the fixture.
-  const bool already_configured = AreDpiAwarenessContextsEqual(
-      GetThreadDpiAwarenessContext(),
-      DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != FALSE;
-  Check(already_configured &&
-            (configured != FALSE || configure_error == ERROR_ACCESS_DENIED),
+  wchar_t manifest_awareness[32]{};
+  SIZE_T setting_length = 0;
+  Check(QueryActCtxSettingsW(0, nullptr,
+            L"http://schemas.microsoft.com/SMI/2016/WindowsSettings",
+            L"dpiAwareness", manifest_awareness,
+            sizeof(manifest_awareness) / sizeof(manifest_awareness[0]),
+            &setting_length) != FALSE &&
+            std::wcscmp(manifest_awareness, L"PerMonitorV2") == 0,
+        "The active application manifest must request PerMonitorV2");
+
+  const auto initial_awareness = GetThreadDpiAwarenessContext();
+  DPI_AWARENESS_CONTEXT previous_awareness = nullptr;
+  if (!AreDpiAwarenessContextsEqual(initial_awareness,
+          DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+    USEROBJECTFLAGS station_flags{};
+    DWORD flags_length = 0;
+    Check(GetUserObjectInformationW(GetProcessWindowStation(), UOI_FLAGS,
+              &station_flags, sizeof(station_flags), &flags_length) != FALSE,
+          "The fixture's window station must be queryable");
+    // The Windows OpenSSH service runs on a nonvisible Session 0 station.
+    // That launch gives this correctly manifested process a V1 default on the
+    // build PC. Query in an explicit V2 thread scope, without changing desktop
+    // settings; an interactive launch must still inherit V2 from the manifest.
+    Check((station_flags.dwFlags & WSF_VISIBLE) == 0,
+          "Interactive startup must inherit PerMonitorV2 from the app manifest");
+    previous_awareness = SetThreadDpiAwarenessContext(
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    Check(previous_awareness != nullptr &&
+              AreDpiAwarenessContextsEqual(previous_awareness,
+                  initial_awareness) != FALSE,
+          "Noninteractive queries must enter a restorable PerMonitorV2 scope");
+    std::cout << "INFO noninteractive window station: scoped PerMonitorV2 queries"
+              << std::endl;
+  }
+  Check(AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(),
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != FALSE,
         "Fixture must query physical coordinates with the app's DPI awareness");
   int monitors = 0;
   Check(EnumDisplayMonitors(nullptr, nullptr, CheckMonitor,
@@ -111,6 +146,15 @@ void CheckWindowsQueries() {
       ? MonitorFromPoint(pointer, MONITOR_DEFAULTTONEAREST)
       : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
   Check(startup == expected, "Startup monitor follows pointer or primary fallback");
+  if (previous_awareness != nullptr) {
+    const auto replaced_awareness = SetThreadDpiAwarenessContext(previous_awareness);
+    Check(replaced_awareness != nullptr &&
+              AreDpiAwarenessContextsEqual(replaced_awareness,
+                  DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != FALSE &&
+              AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(),
+                  initial_awareness) != FALSE,
+          "Noninteractive queries must restore the original DPI context");
+  }
   std::cout << "PASS read-only Windows monitor/DPI/frame API checks ("
             << monitors << " monitors, no window created)" << std::endl;
 }

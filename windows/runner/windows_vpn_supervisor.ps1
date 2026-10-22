@@ -110,9 +110,11 @@ function Stop-SessionChild($Process) {
     if (-not $Process.WaitForExit(10000)) { throw 'child-stop-unconfirmed' }
 }
 
-function Test-SessionCore($Session) {
+function Test-SessionCore($Session, [ValidateRange(1,65535)][int]$ControllerPort = 9090) {
+    # Production uses 9090; isolated fixtures pass only an OS-assigned loopback
+    # port. Callers cannot supply a remote URL or change the authentication rules.
     foreach ($authorized in @($false, $true)) {
-        $request = [Net.HttpWebRequest]::Create('http://127.0.0.1:9090/version')
+        $request = [Net.HttpWebRequest]::Create(('http://127.0.0.1:' + $ControllerPort + '/version'))
         $request.Proxy = $null
         $request.Timeout = 1000
         $request.ReadWriteTimeout = 1000

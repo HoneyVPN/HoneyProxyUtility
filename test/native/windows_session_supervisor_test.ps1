@@ -96,12 +96,17 @@ try {
 
     # Actual production readiness against a bounded loopback dummy HTTP core.
     # TcpListener needs no URL ACL, registry changes, administrator/UAC or VPN.
+    # Let the OS choose an exclusive port: an installed core may own 9090, and
+    # concurrent harnesses must never probe or stop each other's listeners.
     $serverScript = Join-Path $root 'dummy-core.ps1'
     @'
-param([string]$Nonce,[string]$ModeFile,[string]$ReadyFile)
-$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,9090)
+param([string]$Nonce,[string]$ModeFile,[string]$ReadyFile,[int]$ListenPort=0)
+$ErrorActionPreference='Stop'
+$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$ListenPort)
+$listener.ExclusiveAddressUse=$true
 $listener.Start()
-[IO.File]::WriteAllText($ReadyFile,'ready')
+[IO.File]::WriteAllText(($ReadyFile+'.tmp'),$listener.LocalEndpoint.Port.ToString())
+[IO.File]::Move(($ReadyFile+'.tmp'),$ReadyFile)
 try {
   while($true) {
     $client=$listener.AcceptTcpClient()
@@ -122,36 +127,94 @@ try {
       if($mode -eq 'nonJSON'){$body='not a JSON version packet'}
       $bytes=[Text.Encoding]::UTF8.GetBytes($body)
       $header=[Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $status OK`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n")
-      $stream.Write($header,0,$header.Length);$stream.Write($bytes,0,$bytes.Length);$stream.Flush()
+      if($authorized -and $mode -eq 'headerStall'){Start-Sleep -Milliseconds 1600}
+      $stream.Write($header,0,$header.Length);$stream.Flush()
+      if($authorized -and $mode -eq 'bodyStall'){Start-Sleep -Milliseconds 1600}
+      if($authorized -and $mode -eq 'slowBody'){
+        for($offset=0;$offset -lt 4;$offset++){
+          Start-Sleep -Milliseconds 800
+          $stream.Write($bytes,$offset,1);$stream.Flush()
+        }
+        $stream.Write($bytes,4,($bytes.Length-4))
+      }else{$stream.Write($bytes,0,$bytes.Length)}
+      $stream.Flush()
       $reader.Dispose()
     } catch [IO.IOException] {
       # Rejecting an oversized response may close the owned client's stream.
       # Keep the same dummy listener available for the next isolated case.
-    } finally {$client.Dispose()}
+    } finally {
+      $client.Dispose()
+      if($authorized){[IO.File]::WriteAllText(($ReadyFile+'.completed'),$mode)}
+    }
   }
 } finally {$listener.Stop()}
 '@ | Set-Content -LiteralPath $serverScript -Encoding UTF8
     $modeFile = Join-Path $root 'http-mode.txt'
     $readyFile = Join-Path $root 'http-ready'
     [IO.File]::WriteAllText($modeFile, 'valid')
-    $serverArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $serverScript + '" -Nonce ' + $session.Nonce + ' -ModeFile "' + $modeFile + '" -ReadyFile "' + $readyFile + '"'
-    $server = Start-Process powershell.exe -ArgumentList $serverArguments -PassThru -WindowStyle Hidden
-    $null = $server.Handle
-    $script:children.Add($server)
+    function Start-DummyCore([string]$ReadyPath, [int]$ListenPort=0) {
+        $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $serverScript + '" -Nonce ' + $session.Nonce + ' -ModeFile "' + $modeFile + '" -ReadyFile "' + $ReadyPath + '" -ListenPort ' + $ListenPort
+        $process = Start-Process powershell.exe -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardError ($ReadyPath + '.stderr')
+        $null = $process.Handle
+        $script:children.Add($process)
+        return $process
+    }
+    # A failed bind used to be a nonterminating child error, followed by a false
+    # ready file. Reproduce the collision only on a port held by this harness.
+    $occupied = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
+    $occupied.ExclusiveAddressUse = $true
+    $occupied.Start()
+    $collision = $null
+    try {
+        $collisionReady = Join-Path $root 'http-collision-ready'
+        $collision = Start-DummyCore $collisionReady $occupied.LocalEndpoint.Port
+        Assert-True ($collision.WaitForExit(5000)) 'A failed dummy bind must exit promptly'
+        Assert-True ($collision.ExitCode -ne 0) 'A failed dummy bind must report failure'
+        Assert-True (-not (Test-Path -LiteralPath $collisionReady)) 'A failed dummy bind must never publish readiness'
+        Write-Host 'PASS occupied owned port fails setup without publishing false readiness'
+    } finally {
+        if ($null -ne $collision -and -not $collision.HasExited) { $collision.Kill(); $null=$collision.WaitForExit(5000) }
+        $occupied.Stop()
+    }
+    $server = Start-DummyCore $readyFile
     try {
         $deadline = [DateTime]::UtcNow.AddSeconds(5)
         while (-not (Test-Path -LiteralPath $readyFile) -and -not $server.HasExited -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
         Assert-True (Test-Path -LiteralPath $readyFile) 'Dummy loopback server must start'
+        $controllerPort = [int][IO.File]::ReadAllText($readyFile)
+        Assert-True ($controllerPort -ge 1 -and $controllerPort -le 65535) 'Dummy server must publish its actual bound port'
+        Write-Host ('Owned readiness fixture loopback port: ' + $controllerPort)
+        Assert-Throws { Test-SessionCore $session -ControllerPort 0 } 'Controller port zero must be rejected before probing'
+        Assert-Throws { Test-SessionCore $session -ControllerPort 65536 } 'Out-of-range controller port must be rejected before probing'
         foreach ($mode in @('valid','foreign','malformed','oversized','nonJSON')) {
             [IO.File]::WriteAllText($modeFile, $mode)
-            $ready = Test-SessionCore $session
-            Assert-True ($ready -eq ($mode -eq 'valid')) ('Readiness must reject ' + $mode + ' response')
+            $ready = Test-SessionCore $session -ControllerPort $controllerPort
+            $expected = $mode -eq 'valid'
+            $action = if ($expected) { 'accept' } else { 'reject' }
+            Assert-True ($ready -eq $expected) ('Readiness must ' + $action + ' ' + $mode + ' response')
             Write-Host ('PASS actual HTTP readiness mode: ' + $mode)
         }
         [IO.File]::WriteAllText($modeFile, 'valid')
         $wrongNonce = [PSCustomObject]@{Nonce=([Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N'))}
-        Assert-True (-not (Test-SessionCore $wrongNonce)) 'Wrong session nonce must be rejected by the actual HTTP probe'
+        Assert-True (-not (Test-SessionCore $wrongNonce -ControllerPort $controllerPort)) 'Wrong session nonce must be rejected by the actual HTTP probe'
         Write-Host 'PASS actual HTTP readiness rejects another session nonce'
+        foreach ($mode in @('headerStall','bodyStall','slowBody')) {
+            [IO.File]::WriteAllText($modeFile, $mode)
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            Assert-True (-not (Test-SessionCore $session -ControllerPort $controllerPort)) ('Readiness must reject ' + $mode)
+            Assert-True ($clock.ElapsedMilliseconds -lt 6000) ('Readiness must bound ' + $mode)
+            # A timed-out client may finish before the owned dummy writer. Wait
+            # for that exact case before changing its mode, never another PID.
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+            $completed = $readyFile + '.completed'
+            while ((-not (Test-Path -LiteralPath $completed) -or [IO.File]::ReadAllText($completed) -cne $mode) -and
+                   -not $server.HasExited -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+            Assert-True ((Test-Path -LiteralPath $completed) -and [IO.File]::ReadAllText($completed) -ceq $mode) ('Owned dummy server must finish ' + $mode)
+            Write-Host ('PASS actual HTTP readiness deadline: ' + $mode + ' (' + $clock.ElapsedMilliseconds + ' ms)')
+        }
+        [IO.File]::WriteAllText($modeFile, 'valid')
+        Assert-True (Test-SessionCore $session -ControllerPort $controllerPort) 'Valid response must still pass after rejected and timed-out probes'
+        Write-Host 'PASS actual HTTP readiness recovers after malformed and stalled responses'
     } finally {
         if (-not $server.HasExited) { $server.Kill() }
         Assert-True ($server.WaitForExit(5000)) 'Owned dummy listener must exit before the next phase'

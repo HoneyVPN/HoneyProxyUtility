@@ -78,7 +78,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('all')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
-      expect(rotation(tester, 'all').turns.value, greaterThan(0));
+      expect(rotation(tester, 'all').turns.value, lessThan(0));
       expect(button(tester, 'all').onPressed, isNull);
       await tester.tap(find.byKey(const ValueKey('all')));
       await tester.pump();
@@ -113,10 +113,7 @@ void main() {
         expect(button(tester, 'one').onPressed, isNull);
         expect(button(tester, 'two').onPressed, isNull);
         for (final key in ['all', 'one', 'two']) {
-          expect(
-            rotation(tester, key).turns.value,
-            reduced ? 0 : greaterThan(0),
-          );
+          expect(rotation(tester, key).turns.value, reduced ? 0 : lessThan(0));
         }
         notifier.automatic({2});
         await tester.pump();
