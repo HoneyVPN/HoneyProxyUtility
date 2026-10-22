@@ -1,75 +1,50 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Политика конфиденциальности — HoneyVPN</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-         max-width: 800px; margin: 40px auto; padding: 0 20px;
-         color: #1a1a1a; line-height: 1.7; }
-  h1 { font-size: 1.8em; border-bottom: 2px solid #f59e0b; padding-bottom: 10px; }
-  h2 { font-size: 1.2em; margin-top: 2em; color: #374151; }
-  ul { padding-left: 1.5em; }
-  .updated { color: #6b7280; font-size: 0.9em; }
-  a { color: #f59e0b; }
-</style>
-</head>
-<body>
-
-<h1>Политика конфиденциальности HoneyVPN</h1>
-<p class="updated">Дата последнего обновления: 16 мая 2025 г.</p>
-
-<p>Настоящая Политика конфиденциальности описывает, как приложение <strong>HoneyVPN</strong>
-(«Приложение», «мы») обрабатывает информацию пользователей.</p>
-
-<h2>1. Какие данные мы собираем</h2>
-<ul>
-  <li><strong>URL подписки</strong> — адрес вашей подписки на прокси-серверы. Хранится
-      только локально на устройстве, не передаётся на наши серверы.</li>
-  <li><strong>Настройки приложения</strong> — конфигурация VPN, тема, язык. Хранится
-      локально в SharedPreferences.</li>
-</ul>
-
-<p>Мы не собираем никаких других данных. Приложение не использует аналитику, телеметрию
-или отчёты об ошибках.</p>
-
-<h2>2. Что мы НЕ собираем</h2>
-<ul>
-  <li>Содержимое вашего интернет-трафика</li>
-  <li>Историю посещённых сайтов</li>
-  <li>DNS-запросы</li>
-  <li>IP-адрес пользователя</li>
-  <li>Личные данные (имя, email, телефон)</li>
-</ul>
-
-<h2>3. Разрешения приложения</h2>
-<ul>
-  <li><strong>VPN</strong> — создание системного VPN-интерфейса для маршрутизации трафика.</li>
-  <li><strong>CAMERA</strong> — только для сканирования QR-кодов при добавлении сервера
-      или подписки. Видеопоток не сохраняется и не передаётся.</li>
-  <li><strong>INTERNET</strong> — обновление списка серверов по подписке.</li>
-  <li><strong>POST_NOTIFICATIONS</strong> — уведомление о состоянии подключения.</li>
-</ul>
-
-<h2>4. Сторонние сервисы</h2>
-<p>Приложение использует <strong>sing-box</strong> — VPN-ядро с открытым исходным кодом.
-Работает исключительно локально на устройстве, не передаёт данные третьим сторонам.</p>
-
-<h2>5. Хранение данных</h2>
-<p>Все пользовательские данные (настройки, список серверов, подписки) хранятся исключительно
-на вашем устройстве. Мы не используем облачную синхронизацию.</p>
-
-<h2>6. Дети</h2>
-<p>Приложение не предназначено для лиц младше 18 лет. Мы намеренно не собираем данные детей.</p>
-
-<h2>7. Изменения политики</h2>
-<p>При существенных изменениях мы обновим дату в заголовке. Продолжение использования
-приложения означает согласие с актуальной версией политики.</p>
-
-<h2>8. Контакты</h2>
-<p>По вопросам конфиденциальности: <a href="mailto:support@honeyvpn.ru">support@honeyvpn.ru</a><br>
-Telegram: <a href="https://t.me/honeyvpnru_bot">@honeyvpnru_bot</a></p>
-
-</body>
-</html>
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HoneyProxyUtility — Privacy / Конфиденциальность</title><style>body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:850px;margin:40px auto;padding:0 20px;color:#202020;line-height:1.65}h1{font-size:1.8rem}h2{font-size:1.2rem;margin-top:1.8em}a{color:#9c6814}nav{display:flex;gap:20px}.updated{color:#666}section+section{border-top:1px solid #ddd;margin-top:48px;padding-top:24px}@media(prefers-color-scheme:dark){body{color:#eee;background:#161616}a{color:#e3bd70}.updated{color:#bbb}}</style></head><body>
+<nav aria-label="Language"><a href="#ru">Русский</a><a href="#en">English</a></nav><section lang="ru" id="ru">
+<h1>Конфиденциальность HoneyProxyUtility</h1>
+<p class="updated">Обновлено 22 октября 2026 г. Приложение для Android и Windows, версия 1.2.0.</p>
+<p>Эта политика описывает данные приложения HoneyProxyUtility. У выбранного VPN-провайдера, сервиса подписок и внешних сайтов могут действовать собственные правила обработки данных.</p>
+<h2>1. Данные на устройстве</h2>
+<p>Приложение сохраняет на устройстве добавленные серверы и их параметры доступа, ссылки и состояние подписок, избранное, порядок подписок, настройки, геоданные маршрутизации и ограниченный технический журнал. Эти данные нужны для подключения и работы интерфейса. Наличие ссылки подписки может предоставлять доступ к ней: защищайте устройство и файлы, которые экспортируете или передаёте самостоятельно.</p>
+<p>Технический журнал содержит последние события приложения и доступные технические события VPN-ядра. Журнал приложения ограничен 300 событиями и 384 КиБ; старые записи вытесняются новыми. В Android системное резервное копирование данных приложения отключено. Облачной синхронизации подписок и настроек в приложении нет.</p>
+<h2>2. Сетевые обращения, необходимые для работы</h2>
+<ul><li>При добавлении и обновлении подписки запрос отправляется по её адресу, в том числе при настроенном автоматическом обновлении. Этот адрес может содержать идентификатор доступа, который получает соответствующий сервис подписки.</li>
+<li>При загрузке встроенных или провайдерских геоданных приложение обращается к источникам соответствующих файлов. Проверка и загрузка обновления приложения обращаются к GitHub и/или официальным серверам Honey.</li>
+<li>При проверке задержки и подключении приложение обращается к выбранным серверам и проверочным адресам. В режиме VPN трафик, выбранный правилами маршрутизации, проходит через VPN-сервер; DNS-запросы обрабатываются согласно настройкам DNS и маршрутизации.</li>
+<li>Получатель сетевого запроса и обслуживающая его инфраструктура могут видеть IP-адрес источника, время запроса и сетевые метаданные. Эта политика не обещает отсутствие журналов у сторонних VPN-провайдеров, DNS-служб, источников файлов или сайтов.</li></ul>
+<h2>3. Добровольная диагностика</h2>
+<p>Диагностический отчёт отправляется в поддержку только после нажатия пользователем кнопки отправки. Автоматической отправки отчётов при ошибке нет. Получатель — сервер поддержки Honey по HTTPS: <code>api.honeyvpn.ru/app/api/diagnostics</code>.</p>
+<p>Отчёт может содержать версию и сборку приложения, платформу и доступный уровень Android API, версии VPN-ядер, время и состояние подключения, тип протокола и транспорта, технические настройки сети, результаты обновления подписок и геоданных, число серверов, до 300 последних технических событий и введённое вами описание проблемы. Размер отчёта ограничен 512 КиБ. Полный вывод ядра Windows и журнал установщика не включаются.</p>
+<p>Схема отчёта не включает конфигурации серверов, ссылки подписок, имена профилей и ключи доступа. Перед отправкой программа также пытается скрыть адреса, ссылки, идентификаторы, пути и другие известные конфиденциальные значения в тексте. Автоматическая очистка не является гарантией удаления любой личной информации из произвольного текста: не вводите пароли, ссылки подписок и личные данные в описание проблемы. Отсутствие IP-адреса в полях отчёта не скрывает IP самого HTTPS-соединения от принимающего сервера.</p>
+<p>Поддержка использует принятый отчёт для разбора и исправления ошибок. Отчёты хранятся в закрытом хранилище; служба удаляет записи старше семи суток при очередной обработке хранилища. Это не означает удаление точно в момент истечения семи суток. После отправки приложение показывает номер отчёта. Для запроса удаления сообщите этот номер поддержке; для обращения не требуется присылать ключи доступа.</p>
+<h2>4. Разрешения и внешние действия</h2>
+<p>VPN-разрешение необходимо для создания системного туннеля. Камера используется для сканирования QR-кода, если вы предоставили разрешение. Уведомления Android показывают состояние VPN. Вставка из буфера, импорт и открытие внешних ссылок выполняются в соответствующих действиях интерфейса. При переходе в Telegram, браузер или другой сервис действуют его правила конфиденциальности.</p>
+<h2>5. Управление данными</h2>
+<p>Вы можете удалить добавленные подписки и серверы в приложении. Удаление данных приложения средствами ОС удаляет его локальное хранилище; ранее отправленный в поддержку отчёт при этом автоматически не отзывается. Для удаления отчёта свяжитесь с поддержкой и укажите его номер.</p>
+<h2>6. Изменения и контакты</h2>
+<p>При изменении обработки данных мы обновляем эту страницу и дату. По вопросам данных приложения и удаления отчётов: <a href="mailto:support@honeyvpn.ru">support@honeyvpn.ru</a>; Telegram: <a href="https://t.me/honeyvpnru_bot">@honeyvpnru_bot</a>.</p>
+</section><section lang="en" id="en">
+<h1>HoneyProxyUtility privacy policy</h1>
+<p class="updated">Updated October 22, 2026. Android and Windows application, version 1.2.0.</p>
+<p>This policy describes data handled by the HoneyProxyUtility app. Your selected VPN provider, subscription service and external websites may have their own data processing policies.</p>
+<h2>1. Data on your device</h2>
+<p>The app stores added servers and their access parameters, subscription URLs and state, favorites, subscription order, settings, routing geo data and a limited technical journal on your device. These are used to connect and operate the interface. A subscription URL may grant access to the subscription: protect your device and any files you choose to export or share.</p>
+<p>The technical journal contains recent app events and available technical VPN core events. The app journal is limited to 300 events and 384 KiB; newer entries replace older ones. Android system backup of app data is disabled. The app does not provide cloud synchronization of subscriptions or settings.</p>
+<h2>2. Network requests needed for operation</h2>
+<ul><li>Adding or refreshing a subscription sends a request to its URL, including scheduled automatic refreshes. The URL may contain an access identifier received by that subscription service.</li>
+<li>Downloading built-in or provider geo data contacts the sources of those files. Checking for and downloading an app update contacts GitHub and/or official Honey servers.</li>
+<li>Latency checks and connections contact selected servers and connectivity check addresses. In VPN mode, traffic selected by your routing rules passes through the VPN server; DNS requests follow your DNS and routing settings.</li>
+<li>A network recipient and its infrastructure may see the source IP address, request time and connection metadata. This policy does not promise that third-party VPN providers, DNS services, file sources or websites keep no logs.</li></ul>
+<h2>3. Optional diagnostics</h2>
+<p>A diagnostic report is sent to support only when you press the send button. Errors do not automatically upload reports. The recipient is the Honey support server over HTTPS: <code>api.honeyvpn.ru/app/api/diagnostics</code>.</p>
+<p>A report may include the app version and build, platform and available Android API level, VPN core versions, connection time and state, protocol and transport type, technical network settings, subscription and geo data update results, server counts, up to 300 recent technical events and the problem description you enter. Reports are limited to 512 KiB. Raw Windows core output and installer logs are excluded.</p>
+<p>The report schema excludes server configurations, subscription URLs, profile names and access keys. The app also attempts to redact addresses, links, identifiers, paths and other known confidential values from text before sending. Automatic redaction does not guarantee removal of every piece of personal information in arbitrary text: do not enter passwords, subscription URLs or personal details in your problem description. Omitting an IP field from the report does not hide the HTTPS connection's source IP from the receiving server.</p>
+<p>Support uses received reports to investigate and fix errors. Reports are stored in private storage; the service removes entries older than seven days when it next processes that storage. This does not mean deletion occurs at the exact seven-day deadline. After submission, the app displays a report ID. To request deletion, give that ID to support; you do not need to send access keys.</p>
+<h2>4. Permissions and external actions</h2>
+<p>VPN permission is needed to create a system tunnel. The camera scans QR codes if you grant permission. Android notifications show VPN status. Clipboard paste, import and external links are used through their corresponding interface actions. When you open Telegram, a browser or another service, that service's privacy rules apply.</p>
+<h2>5. Managing your data</h2>
+<p>You can remove added subscriptions and servers in the app. Clearing app data using your operating system removes its local storage; this does not automatically withdraw a report already sent to support. Contact support with the report ID to request deletion.</p>
+<h2>6. Changes and contact</h2>
+<p>When data handling changes, we update this page and its date. For questions about app data or report deletion: <a href="mailto:support@honeyvpn.ru">support@honeyvpn.ru</a>; Telegram: <a href="https://t.me/honeyvpnru_bot">@honeyvpnru_bot</a>.</p>
+</section>
+</body></html>
