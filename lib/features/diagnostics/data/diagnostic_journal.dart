@@ -35,7 +35,15 @@ class DiagnosticJournal {
   Future<void> _write = Future.value();
   Future<void>? _initialization;
   int _clearRevision = 0;
+  final _errorListeners = <void Function(DiagnosticEvent)>{};
   List<DiagnosticEvent> get events => List.unmodifiable(_events);
+
+  /// Only newly added, sanitized errors are observed; loading the persisted
+  /// journal never replays historical errors. Observers cannot break logging.
+  void Function() addErrorListener(void Function(DiagnosticEvent) listener) {
+    _errorListeners.add(listener);
+    return () => _errorListeners.remove(listener);
+  }
 
   Future<void> initialize() => _initialization ??= _load();
   Future<void> _load() async {
@@ -125,6 +133,16 @@ class DiagnosticJournal {
     _sizes.add(size);
     _bytes += size;
     _bound();
+    if (error) {
+      final event = _events.last;
+      for (final listener in _errorListeners.toList()) {
+        try {
+          listener(event);
+        } catch (_) {
+          // A support observer must never change application behavior.
+        }
+      }
+    }
     if (persist && _prefs != null) {
       _timer ??= Timer(const Duration(milliseconds: 300), () {
         _timer = null;
@@ -171,6 +189,7 @@ class DiagnosticJournal {
   }
 
   void dispose() {
+    _errorListeners.clear();
     _timer?.cancel();
     _timer = null;
   }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../../converter/domain/entities/parsed_proxy.dart';
 import '../../../settings/data/models/app_settings.dart';
+import '../../domain/validation/play_tunnel_encryption.dart';
 import 'provider_geo_bundle.dart';
 
 enum SingboxConfigTarget { android, apple }
@@ -21,6 +22,9 @@ class SingboxConfigGenerator {
 
   /// Validate target-specific fields before native or geodata preparation.
   void validateTargetCompatibility(ParsedProxy proxy) {
+    if (target == SingboxConfigTarget.android) {
+      validatePlayTunnelEncryption(proxy);
+    }
     switch (proxy) {
       case WireGuardConfig c:
         _peerReserved(c.reserved);

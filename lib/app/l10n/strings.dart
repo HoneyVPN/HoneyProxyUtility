@@ -417,21 +417,22 @@ class S {
   // ── VPN Disclosure dialog (Google Play VpnService policy) ──────────────────
   String get vpnDisclosureTitle => _ru ? 'Использование VPN' : 'VPN Usage';
   String get vpnDisclosureBody => _ru
-      ? 'Для работы приложению требуется создать VPN-туннель на вашем устройстве.\n\n'
-            '• Весь интернет-трафик будет маршрутизироваться через выбранный прокси-сервер.\n'
-            '• Соединение между устройством и сервером шифруется.\n'
-            '• Приложение не записывает и не передаёт содержимое вашего трафика.\n'
-            '• Личные данные не собираются.'
-      : 'This app needs to create a VPN tunnel on your device.\n\n'
-            '• All internet traffic will be routed through the selected proxy server.\n'
-            '• The connection between your device and the server is encrypted.\n'
-            '• The app does not log or transmit the content of your traffic.\n'
-            '• No personal data is collected.';
+      ? 'HoneyProxyUtility создаёт VPN-туннель для подключения к выбранному вами серверу.\n\n'
+            '• Приложение обрабатывает сетевой трафик и DNS-запросы по вашим правилам маршрутизации. Соответствующий трафик и сетевые метаданные получает выбранный VPN- или DNS-провайдер; действуют его правила конфиденциальности.\n'
+            '• Серверы, ссылки подписок и настройки хранятся на устройстве. Обновления подписок и геоданных обращаются к их источникам.\n'
+            '• Технический журнал хранится локально. Отчёт с версией приложения, состоянием VPN и настройками можно отправить в поддержку Honey вручную. Автоматическая отправка при ошибках включается только с вашего отдельного согласия и отключается в настройках.'
+      : 'HoneyProxyUtility creates a VPN tunnel to connect to the server you select.\n\n'
+            '• The app processes network traffic and DNS requests according to your routing rules. Your selected VPN or DNS provider receives the corresponding traffic and connection metadata; its privacy rules apply.\n'
+            '• Servers, subscription URLs and settings are stored on your device. Subscription and geo data updates contact their sources.\n'
+            '• Technical logs stay on your device. You can send a report with the app version, VPN state and settings to Honey support manually. Automatic error reporting requires your separate consent and can be turned off in Settings.';
   String get vpnDisclosurePrivacyLink =>
       _ru ? 'Политика конфиденциальности' : 'Privacy Policy';
   String get vpnDisclosureAccept =>
       _ru ? 'Принять и продолжить' : 'Accept & Continue';
   String get vpnDisclosureDecline => _ru ? 'Отмена' : 'Cancel';
+  String get playEncryptedTunnelRequired => _ru
+      ? 'Для Google Play требуется шифрование между устройством и VPN-сервером. Выберите профиль с TLS, REALITY или другим поддерживаемым шифрованием.'
+      : 'Google Play requires encryption between your device and the VPN server. Choose a profile with TLS, REALITY or another supported encryption method.';
 
   // ── Import / Converter screen ───────────────────────────────────────────────
   String get importScreenTitle => _ru ? 'Импорт' : 'Import';

@@ -1,10 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const _kDisclosureAccepted = 'vpn_disclosure_accepted';
+// The earlier disclosure made broader claims about data processing. Show the
+// corrected disclosure once even when that earlier version was accepted.
+const _kDisclosureAccepted = 'vpn_disclosure_accepted_v2';
 
 final vpnDisclosureProvider =
-    AsyncNotifierProvider<VpnDisclosureNotifier, bool>(VpnDisclosureNotifier.new);
+    AsyncNotifierProvider<VpnDisclosureNotifier, bool>(
+      VpnDisclosureNotifier.new,
+    );
 
 class VpnDisclosureNotifier extends AsyncNotifier<bool> {
   @override

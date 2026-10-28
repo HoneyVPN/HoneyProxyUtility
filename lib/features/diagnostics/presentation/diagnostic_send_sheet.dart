@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../app/l10n/strings.dart';
 import '../data/diagnostic_report.dart';
 import '../data/diagnostic_upload.dart';
@@ -160,16 +161,30 @@ class _DiagnosticSendSheetState extends ConsumerState<_DiagnosticSendSheet> {
                 const SizedBox(height: 8),
                 Text(
                   ru
-                      ? 'В отчёте: версия приложения, состояние VPN, настройки сети и результаты обновления подписок. Адреса, ссылки, имена и ключи доступа скрыты.'
-                      : 'Includes app version, VPN state, network settings and subscription update results. Addresses, links, names and access keys are removed.',
+                      ? 'В отчёте: версия приложения, состояние VPN, настройки сети и результаты обновления подписок. Приложение пытается скрыть адреса, ссылки, имена и ключи доступа. Не вводите пароли, ссылки подписок и личные данные в описание проблемы.'
+                      : 'Includes app version, VPN state, network settings and subscription update results. The app attempts to hide addresses, links, names and access keys. Do not enter passwords, subscription URLs or personal details in the problem description.',
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   ru
-                      ? 'Только последние события. Журнал установщика и полный вывод ядра Windows не включены. Ничего не отправляется автоматически.'
-                      : 'Recent events only. Installer logs and raw Windows core output are not included. Nothing is sent automatically.',
+                      ? 'Только последние события. Журнал установщика и полный вывод ядра Windows не включены. Этот отчёт отправится после нажатия кнопки. Автоотправка ошибок включается отдельно в настройках.'
+                      : 'Recent events only. Installer logs and raw Windows core output are not included. This report is sent after you press the button. Automatic error reporting is enabled separately in Settings.',
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+                ),
+                TextButton.icon(
+                  onPressed: _sending
+                      ? null
+                      : () => launchUrl(
+                          Uri.parse(
+                            'https://api.honeyvpn.ru/privacy#${ru ? 'ru' : 'en'}',
+                          ),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                  icon: const Icon(Icons.privacy_tip_outlined, size: 18),
+                  label: Text(
+                    ru ? 'Политика конфиденциальности' : 'Privacy policy',
+                  ),
                 ),
                 const SizedBox(height: 16),
                 if (_preparing)

@@ -450,7 +450,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             const SizedBox(height: 12),
             GestureDetector(
               onTap: () => launchUrl(
-                Uri.parse('https://api.honeyvpn.ru/privacy'),
+                Uri.parse('https://api.honeyvpn.ru/privacy#${s.locale}'),
                 mode: LaunchMode.externalApplication,
               ),
               child: Text(

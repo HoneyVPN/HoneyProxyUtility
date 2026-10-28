@@ -12,6 +12,7 @@ import '../notifiers/settings_notifier.dart';
 import '../../data/models/app_settings.dart';
 import '../widgets/yunicode_credit.dart';
 import '../widgets/settings_save_feedback.dart';
+import '../../../diagnostics/presentation/diagnostic_auto_send_gate.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -221,6 +222,7 @@ class SettingsScreen extends ConsumerWidget {
                   title: s.logsTitle,
                   onTap: () => context.push('/settings/log'),
                 ),
+                const AutomaticDiagnosticsTile(),
                 if (!isWindows && !isApple)
                   _SettingsTile(
                     icon: Icons.filter_list_outlined,

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/vpn_core_status.dart';
+import '../../domain/validation/play_tunnel_encryption.dart';
 import 'package:logging/logging.dart';
 
 import '../../data/datasources/singbox_datasource.dart';
@@ -298,6 +299,9 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
       if (proxy == null) {
         throw Exception('Cannot parse server config');
       }
+      // Includes profiles saved before this Play build. Check before provider
+      // downloads, native initialization, or the system VPN permission request.
+      validatePlayTunnelEncryption(proxy);
       if (!kIsWeb &&
           (Platform.isMacOS || Platform.isIOS) &&
           settings.connectionMode != ConnectionMode.tunnel) {
@@ -395,6 +399,8 @@ class ConnectionNotifier extends Notifier<NexConnectionState> {
         errorMessage: _localizedMessage(
           (strings) => e is SettingsValidationException
               ? _settingsMessage(e.issue, strings)
+              : e is PlayTunnelEncryptionException
+              ? strings.playEncryptedTunnelRequired
               : e is ProviderGeoException
               ? strings.providerGeoFailure(e.issue)
               : e is WindowsSessionException

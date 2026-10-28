@@ -16,6 +16,7 @@ import "android_notification_locale.dart";
 import "windows_tray_controller.dart";
 import "l10n/supported_locale.dart";
 import "../features/settings/presentation/notifiers/settings_notifier.dart";
+import "../features/diagnostics/presentation/diagnostic_auto_send_gate.dart";
 
 class HoneyProxyApp extends ConsumerStatefulWidget {
   const HoneyProxyApp({super.key});
@@ -112,14 +113,17 @@ class _HoneyProxyAppState extends ConsumerState<HoneyProxyApp> {
         darkTheme: honeyThemeDark,
         themeMode: themeMode,
         routerConfig: appRouter,
-        builder: (context, child) => Theme(
-          data: honeyThemeForWidth(
-            Theme.of(context),
-            MediaQuery.sizeOf(context).width,
-          ),
-          child: FocusTraversalGroup(
-            policy: WidgetOrderTraversalPolicy(),
-            child: child ?? const SizedBox.shrink(),
+        builder: (context, child) => DiagnosticAutoSendGate(
+          navigatorKey: appRouter.routerDelegate.navigatorKey,
+          child: Theme(
+            data: honeyThemeForWidth(
+              Theme.of(context),
+              MediaQuery.sizeOf(context).width,
+            ),
+            child: FocusTraversalGroup(
+              policy: WidgetOrderTraversalPolicy(),
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         ),
         locale: Locale(locale),
